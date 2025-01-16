@@ -2,13 +2,16 @@
 #include <stdbool.h>
 #include <string.h>
 
+#include "klib/kvec.h"
 #include "nvim/ascii_defs.h"
 #include "nvim/fileio.h"
 #include "nvim/globals.h"
 #include "nvim/memory.h"
 #include "nvim/os/os.h"
+#include "nvim/os/os_defs.h"
 #include "nvim/os/stdpaths_defs.h"
 #include "nvim/path.h"
+#include "nvim/strings.h"
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "os/stdpaths.c.generated.h"
@@ -60,22 +63,32 @@ static const char *const xdg_defaults[] = {
 #endif
 };
 
-/// Get the value of $NVIM_APPNAME or "nvim" if not set.
+/// Gets the value of $NVIM_APPNAME, or "nvim" if not set.
+///
+/// @param namelike Write "name-like" value (no path separators) in `NameBuff`.
 ///
 /// @return $NVIM_APPNAME value
-const char *get_appname(void)
+const char *get_appname(bool namelike)
 {
   const char *env_val = os_getenv("NVIM_APPNAME");
-  if (env_val == NULL || *env_val == '\0') {
+  if (env_val == NULL || *env_val == NUL) {
     env_val = "nvim";
   }
+
+  if (namelike) {
+    // Appname may be a relative path, replace slashes to make it name-like.
+    xstrlcpy(NameBuff, env_val, sizeof(NameBuff));
+    memchrsub(NameBuff, '/', '-', sizeof(NameBuff));
+    memchrsub(NameBuff, '\\', '-', sizeof(NameBuff));
+  }
+
   return env_val;
 }
 
 /// Ensure that APPNAME is valid. Must be a name or relative path.
 bool appname_is_valid(void)
 {
-  const char *appname = get_appname();
+  const char *appname = get_appname(false);
   if (path_is_absolute(appname)
       // TODO(justinmk): on Windows, path_is_absolute says "/" is NOT absolute. Should it?
       || strequal(appname, "/")
@@ -91,6 +104,46 @@ bool appname_is_valid(void)
     return false;
   }
   return true;
+}
+
+/// Remove duplicate directories in the given XDG directory.
+/// @param[in]  List of directories possibly with duplicates
+/// @param[out]  List of directories without duplicates
+static char *xdg_remove_duplicate(char *ret, const char *sep)
+{
+  kvec_t(char *) data = KV_INITIAL_VALUE;
+  char *saveptr;
+
+  char *token = os_strtok(ret, sep, &saveptr);
+  while (token != NULL) {
+    // Check if the directory is not already in the list
+    bool is_duplicate = false;
+    for (size_t i = 0; i < data.size; i++) {
+      if (path_fnamecmp(kv_A(data, i), token) == 0) {
+        is_duplicate = true;
+        break;
+      }
+    }
+    // If it's not a duplicate, add it to the list
+    if (!is_duplicate) {
+      kv_push(data, token);
+    }
+    token = os_strtok(NULL, sep, &saveptr);
+  }
+
+  StringBuilder result = KV_INITIAL_VALUE;
+
+  for (size_t i = 0; i < data.size; i++) {
+    if (i == 0) {
+      kv_printf(result, "%s", kv_A(data, i));
+    } else {
+      kv_printf(result, "%s%s", sep, kv_A(data, i));
+    }
+  }
+
+  kv_destroy(data);
+  xfree(ret);
+  return result.items;
 }
 
 /// Return XDG variable value
@@ -131,6 +184,10 @@ char *stdpaths_get_xdg_var(const XDGVarType idx)
     ret = xmemdupz(ret, len >= 2 ? len - 1 : 0);  // Trim trailing slash.
   }
 
+  if ((idx == kXDGDataDirs || idx == kXDGConfigDirs) && ret != NULL) {
+    ret = xdg_remove_duplicate(ret, ENV_SEPSTR);
+  }
+
   return ret;
 }
 
@@ -146,12 +203,12 @@ char *get_xdg_home(const XDGVarType idx)
   FUNC_ATTR_WARN_UNUSED_RESULT
 {
   char *dir = stdpaths_get_xdg_var(idx);
-  const char *appname = get_appname();
+  const char *appname = get_appname(false);
   size_t appname_len = strlen(appname);
   assert(appname_len < (IOSIZE - sizeof("-data")));
 
   if (dir) {
-    xstrlcpy(IObuff, appname, appname_len + 1);
+    xmemcpyz(IObuff, appname, appname_len);
 #if defined(MSWIN)
     if (idx == kXDGDataHome || idx == kXDGStateHome) {
       xstrlcat(IObuff, "-data", IOSIZE);

@@ -1,13 +1,13 @@
-local helpers = require('test.unit.helpers')(after_each)
-local itp = helpers.gen_itp(it)
+local t = require('test.unit.testutil')
+local itp = t.gen_itp(it)
 
-local cimport = helpers.cimport
-local eq = helpers.eq
-local neq = helpers.neq
-local ffi = helpers.ffi
-local cstr = helpers.cstr
-local to_cstr = helpers.to_cstr
-local NULL = helpers.NULL
+local cimport = t.cimport
+local eq = t.eq
+local neq = t.neq
+local ffi = t.ffi
+local cstr = t.cstr
+local to_cstr = t.to_cstr
+local NULL = t.NULL
 local OK = 0
 
 local cimp = cimport('./src/nvim/os/os.h')
@@ -306,9 +306,9 @@ describe('env.c', function()
       -- expand_env_esc SHOULD NOT expand the variable if there is not enough space to
       -- contain the result
       for i = 0, 3 do
-        eq(output[i], input[i])
+        eq(input[i], output[i])
       end
-      eq(output[4], 0)
+      eq(0, output[4])
     end)
   end)
 end)

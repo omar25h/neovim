@@ -1,9 +1,11 @@
-local helpers = require('test.functional.helpers')(after_each)
+local t = require('test.testutil')
+local n = require('test.functional.testnvim')()
 local Screen = require('test.functional.ui.screen')
-local clear = helpers.clear
-local command = helpers.command
-local feed = helpers.feed
-local write_file = helpers.write_file
+
+local clear = n.clear
+local command = n.command
+local feed = n.feed
+local write_file = t.write_file
 
 before_each(clear)
 
@@ -12,11 +14,6 @@ describe('debugger', function()
 
   before_each(function()
     screen = Screen.new(999, 10)
-    screen:set_default_attr_ids({
-      [0] = {bold = true, foreground = Screen.colors.Blue};
-      [1] = {reverse = true, bold = true};
-    })
-    screen:attach()
   end)
 
   -- oldtest: Test_Debugger_breakadd_expr()
@@ -30,16 +27,19 @@ describe('debugger', function()
     command(':let g:Xtest_var = 10')
     command(':breakadd expr g:Xtest_var')
     feed(':source %<CR>')
-    screen:expect{grid=[[
+    screen:expect {
+      grid = [[
       ^let g:Xtest_var += 1{MATCH: *}|
-      {0:~{MATCH: *}}|*8
+      {1:~{MATCH: *}}|*8
       :source %{MATCH: *}|
-    ]]}
+    ]],
+    }
     feed(':source %<CR>')
-    screen:expect{grid=[[
+    screen:expect {
+      grid = [[
       let g:Xtest_var += 1{MATCH: *}|
-      {0:~{MATCH: *}}|
-      {1:{MATCH: *}}|
+      {1:~{MATCH: *}}|
+      {3:{MATCH: *}}|
       Breakpoint in "{MATCH:.*}XdebugBreakExpr.vim" line 1{MATCH: *}|
       Entering Debug mode.  Type "cont" to continue.{MATCH: *}|
       Oldval = "10"{MATCH: *}|
@@ -47,18 +47,22 @@ describe('debugger', function()
       {MATCH:.*}XdebugBreakExpr.vim{MATCH: *}|
       line 1: let g:Xtest_var += 1{MATCH: *}|
       >^{MATCH: *}|
-    ]]}
+    ]],
+    }
     feed('cont<CR>')
-    screen:expect{grid=[[
+    screen:expect {
+      grid = [[
       ^let g:Xtest_var += 1{MATCH: *}|
-      {0:~{MATCH: *}}|*8
+      {1:~{MATCH: *}}|*8
       {MATCH: *}|
-    ]]}
+    ]],
+    }
     feed(':source %<CR>')
-    screen:expect{grid=[[
+    screen:expect {
+      grid = [[
       let g:Xtest_var += 1{MATCH: *}|
-      {0:~{MATCH: *}}|
-      {1:{MATCH: *}}|
+      {1:~{MATCH: *}}|
+      {3:{MATCH: *}}|
       Breakpoint in "{MATCH:.*}XdebugBreakExpr.vim" line 1{MATCH: *}|
       Entering Debug mode.  Type "cont" to continue.{MATCH: *}|
       Oldval = "11"{MATCH: *}|
@@ -66,6 +70,7 @@ describe('debugger', function()
       {MATCH:.*}XdebugBreakExpr.vim{MATCH: *}|
       line 1: let g:Xtest_var += 1{MATCH: *}|
       >^{MATCH: *}|
-    ]]}
+    ]],
+    }
   end)
 end)

@@ -1,10 +1,10 @@
-local helpers = require('test.functional.helpers')(after_each)
-
+local n = require('test.functional.testnvim')()
 local Screen = require('test.functional.ui.screen')
-local clear = helpers.clear
-local exec = helpers.exec
-local feed = helpers.feed
-local command = helpers.command
+
+local clear = n.clear
+local exec = n.exec
+local feed = n.feed
+local command = n.command
 
 describe('display', function()
   before_each(clear)
@@ -12,10 +12,6 @@ describe('display', function()
   -- oldtest: Test_display_scroll_at_topline()
   it('scroll when modified at topline vim-patch:8.2.1488', function()
     local screen = Screen.new(20, 4)
-    screen:attach()
-    screen:set_default_attr_ids({
-      [1] = {bold = true},
-    })
 
     command([[call setline(1, repeat('a', 21))]])
     feed('O')
@@ -23,19 +19,13 @@ describe('display', function()
       ^                    |
       aaaaaaaaaaaaaaaaaaaa|
       a                   |
-      {1:-- INSERT --}        |
+      {5:-- INSERT --}        |
     ]])
   end)
 
   -- oldtest: Test_display_scroll_update_visual()
   it('scrolling when modified at topline in Visual mode vim-patch:8.2.4626', function()
     local screen = Screen.new(60, 8)
-    screen:attach()
-    screen:set_default_attr_ids({
-      [1] = {bold = true},  -- ModeMsg
-      [2] = {background = Screen.colors.LightGrey},  -- Visual
-      [3] = {background = Screen.colors.Grey, foreground = Screen.colors.DarkBlue},  -- SignColumn
-    })
 
     exec([[
       set scrolloff=0
@@ -47,20 +37,19 @@ describe('display', function()
     ]])
     feed('VG7kk')
     screen:expect([[
-      {3:  }^f{2:oo}                                                       |
-      {3:  }foo                                                       |*6
-      {1:-- VISUAL LINE --}                                           |
+      {7:  }^f{17:oo}                                                       |
+      {7:  }foo                                                       |*6
+      {5:-- VISUAL LINE --}                                           |
     ]])
   end)
 
   local function run_test_display_lastline(euro)
     local screen = Screen.new(75, 10)
     screen:set_default_attr_ids({
-      [1] = {bold = true, foreground = Screen.colors.Blue},  -- NonText
-      [2] = {bold = true, reverse = true},  -- StatusLine
-      [3] = {reverse = true},  -- StatusLineNC
+      [1] = { bold = true, foreground = Screen.colors.Blue }, -- NonText
+      [2] = { bold = true, reverse = true }, -- StatusLine
+      [3] = { reverse = true }, -- StatusLineNC
     })
-    screen:attach()
     exec([[
       call setline(1, ['aaa', 'b'->repeat(200)])
       set display=truncate
@@ -139,7 +128,6 @@ describe('display', function()
   -- oldtest: Test_display_long_lastline()
   it('"lastline" shows correct text when end of wrapped line is deleted', function()
     local screen = Screen.new(35, 14)
-    screen:attach()
     exec([[
       set display=lastline smoothscroll scrolloff=0
       call setline(1, [
@@ -149,7 +137,7 @@ describe('display', function()
     ]])
     feed('736|')
     screen:expect([[
-      <<<aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|
+      {1:<<<}aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|
       aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|*11
       ^aaaaaaaaaaaaaaa                    |
                                          |
@@ -157,22 +145,22 @@ describe('display', function()
     -- The correct part of the last line is moved into view.
     feed('D')
     screen:expect([[
-      <<<aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|
+      {1:<<<}aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|
       aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|*10
       aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa^a|
-      bbbbb bbbbb bbbbb bbbbb bbbbb bb@@@|
+      bbbbb bbbbb bbbbb bbbbb bbbbb bb{1:@@@}|
                                          |
     ]])
     -- "w_skipcol" does not change because the topline is still long enough
     -- to maintain the current skipcol.
     feed('g04l11gkD')
     screen:expect([[
-      <<<^a                               |
+      {1:<<<}^a                               |
       bbbbb bbbbb bbbbb bbbbb bbbbb bbbbb|
        bbbbb ccccc ccccc ccccc ccccc cccc|
       c ccccc ccccc ddddd ddddd ddddd ddd|
       dd ddddd ddddd ddddd               |
-      ~                                  |*8
+      {1:~                                  }|*8
                                          |
     ]])
     -- "w_skipcol" is reset to bring the entire topline into view because
@@ -183,7 +171,7 @@ describe('display', function()
       aa^a                                |
       bbbbb bbbbb bbbbb bbbbb bbbbb bbbbb|
        bbbbb ccccc ccccc ccccc ccccc cccc|
-      c ccccc ccccc ddddd ddddd ddddd @@@|
+      c ccccc ccccc ddddd ddddd ddddd {1:@@@}|
                                          |
     ]])
   end)
@@ -191,13 +179,12 @@ describe('display', function()
   -- oldtest: Test_display_cursor_long_line()
   it("correctly shows line that doesn't fit in the window", function()
     local screen = Screen.new(75, 8)
-    screen:attach()
     exec([[
       call setline(1, ['a', 'b ' .. 'bbbbb'->repeat(150), 'c'])
       norm $j
     ]])
     screen:expect([[
-      <<<bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
+      {1:<<<}bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
       bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|*5
       b^b                                                                         |
                                                                                  |
@@ -207,7 +194,7 @@ describe('display', function()
     exec('set number cpo+=n scrolloff=0')
     feed('$0')
     screen:expect([[
-      <<<b^bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
+      {1:<<<}b^bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
       bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|*6
                                                                                  |
     ]])
@@ -215,14 +202,14 @@ describe('display', function()
     exec('set smoothscroll')
     feed('$b')
     screen:expect([[
-        2 b ^bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
+      {8:  2 }b ^bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
       bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|*6
                                                                                  |
     ]])
     -- Same for "ge".
     feed('$ge')
     screen:expect([[
-        2 ^b bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
+      {8:  2 }^b bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
       bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|*6
                                                                                  |
     ]])

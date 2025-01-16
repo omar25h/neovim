@@ -187,7 +187,8 @@ func Test_global_local_undolevels()
 
   " Resetting the local 'undolevels' value to use the global value
   setlocal undolevels=5
-  setlocal undolevels<
+  "setlocal undolevels<
+  set undolevels<
   call assert_equal(-123456, &l:undolevels)
 
   " Drop created windows
@@ -588,7 +589,7 @@ funct Test_undofile()
   endif
   call assert_equal('', undofile(''))
 
-  " Test undofile() with 'undodir' set to to an existing directory.
+  " Test undofile() with 'undodir' set to an existing directory.
   call mkdir('Xundodir')
   set undodir=Xundodir
   let cwd = getcwd()

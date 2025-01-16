@@ -3,17 +3,35 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "nvim/api/private/defs.h"
 #include "nvim/ascii_defs.h"
-#include "nvim/eval/typval_defs.h"
 #include "nvim/ex_cmds_defs.h"  // IWYU pragma: keep
 #include "nvim/extmark_defs.h"  // IWYU pragma: keep
-#include "nvim/func_attr.h"
 #include "nvim/macros_defs.h"
 #include "nvim/normal_defs.h"
 #include "nvim/option_defs.h"  // IWYU pragma: keep
 #include "nvim/os/time_defs.h"
 #include "nvim/pos_defs.h"
 #include "nvim/types_defs.h"
+
+/// structure used by block_prep, op_delete and op_yank for blockwise operators
+/// also op_change, op_shift, op_insert, op_replace - AKelly
+struct block_def {
+  int startspaces;           ///< 'extra' cols before first char
+  int endspaces;             ///< 'extra' cols after last char
+  int textlen;               ///< chars in block
+  char *textstart;           ///< pointer to 1st char (partially) in block
+  colnr_T textcol;           ///< index of chars (partially) in block
+  colnr_T start_vcol;        ///< start col of 1st char wholly inside block
+  colnr_T end_vcol;          ///< start col of 1st char wholly after block
+  int is_short;              ///< true if line is too short to fit in block
+  int is_MAX;                ///< true if curswant==MAXCOL when starting
+  int is_oneChar;            ///< true if block within one character
+  int pre_whitesp;           ///< screen cols of ws before block
+  int pre_whitesp_c;         ///< chars of ws before block
+  colnr_T end_char_vcols;    ///< number of vcols of post-block char
+  colnr_T start_char_vcols;  ///< number of vcols of pre-block char
+};
 
 typedef int (*Indenter)(void);
 
@@ -86,13 +104,13 @@ enum GRegFlags {
 };
 
 /// Definition of one register
-typedef struct yankreg {
-  char **y_array;           ///< Pointer to an array of line pointers.
+typedef struct {
+  String *y_array;          ///< Pointer to an array of Strings.
   size_t y_size;            ///< Number of lines in y_array.
   MotionType y_type;        ///< Register type
   colnr_T y_width;          ///< Register width (only valid for y_type == kBlockWise).
   Timestamp timestamp;      ///< Time when register was last modified.
-  dict_T *additional_data;  ///< Additional data from ShaDa file.
+  AdditionalData *additional_data;  ///< Additional data from ShaDa file.
 } yankreg_T;
 
 /// Modes for get_yank_register()
@@ -102,8 +120,10 @@ typedef enum {
   YREG_PUT,
 } yreg_mode_t;
 
-static inline int op_reg_index(int regname)
-  REAL_FATTR_CONST;
+#ifdef INCLUDE_GENERATED_DECLARATIONS
+# include "ops.h.generated.h"
+# include "ops.h.inline.generated.h"
+#endif
 
 /// Convert register name into register index
 ///
@@ -111,6 +131,7 @@ static inline int op_reg_index(int regname)
 ///
 /// @return Index in y_regs array or -1 if register name was not recognized.
 static inline int op_reg_index(const int regname)
+  FUNC_ATTR_CONST
 {
   if (ascii_isdigit(regname)) {
     return regname - '0';
@@ -129,19 +150,13 @@ static inline int op_reg_index(const int regname)
   }
 }
 
-static inline bool is_literal_register(int regname)
-  REAL_FATTR_CONST;
-
 /// @see get_yank_register
 /// @return  true when register should be inserted literally
 /// (selection or clipboard)
 static inline bool is_literal_register(const int regname)
+  FUNC_ATTR_CONST
 {
   return regname == '*' || regname == '+';
 }
-
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "ops.h.generated.h"
-#endif
 
 EXTERN LuaRef repeat_luaref INIT( = LUA_NOREF);  ///< LuaRef for "."

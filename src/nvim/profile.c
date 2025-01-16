@@ -5,20 +5,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <uv.h>
 
 #include "nvim/ascii_defs.h"
 #include "nvim/charset.h"
 #include "nvim/cmdexpand_defs.h"
 #include "nvim/debugger.h"
+#include "nvim/errors.h"
 #include "nvim/eval.h"
 #include "nvim/eval/typval_defs.h"
 #include "nvim/eval/userfunc.h"
 #include "nvim/ex_cmds_defs.h"
 #include "nvim/fileio.h"
 #include "nvim/garray.h"
-#include "nvim/gettext.h"
+#include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
 #include "nvim/hashtab.h"
+#include "nvim/hashtab_defs.h"
 #include "nvim/keycodes.h"
 #include "nvim/memory.h"
 #include "nvim/message.h"
@@ -35,7 +38,7 @@
 #endif
 
 /// Struct used in sn_prl_ga for every line of a script.
-typedef struct sn_prl_S {
+typedef struct {
   int snp_count;                ///< nr of times line was executed
   proftime_T sn_prl_total;      ///< time spent in a line + children
   proftime_T sn_prl_self;       ///< time spent in a line itself
@@ -44,6 +47,7 @@ typedef struct sn_prl_S {
 #define PRL_ITEM(si, idx)     (((sn_prl_T *)(si)->sn_prl_ga.ga_data)[(idx)])
 
 static proftime_T prof_wait_time;
+static char *startuptime_buf = NULL;  // --startuptime buffer
 
 /// Gets the current time.
 ///
@@ -254,7 +258,7 @@ void profile_reset(void)
   size_t todo = functbl->ht_used;
   hashitem_T *hi = functbl->ht_array;
 
-  for (; todo > (size_t)0; hi++) {
+  for (; todo > 0; hi++) {
     if (!HASHITEM_EMPTY(hi)) {
       todo--;
       ufunc_T *uf = HI2UF(hi);
@@ -380,19 +384,19 @@ void set_context_in_profile_cmd(expand_T *xp, const char *arg)
   xp->xp_context = EXPAND_NOTHING;
 }
 
-static proftime_T inchar_time;
+static proftime_T wait_time;
 
 /// Called when starting to wait for the user to type a character.
-void prof_inchar_enter(void)
+void prof_input_start(void)
 {
-  inchar_time = profile_start();
+  wait_time = profile_start();
 }
 
 /// Called when finished waiting for the user to type a character.
-void prof_inchar_exit(void)
+void prof_input_end(void)
 {
-  inchar_time = profile_end(inchar_time);
-  profile_set_wait(profile_add(profile_get_wait(), inchar_time));
+  wait_time = profile_end(wait_time);
+  profile_set_wait(profile_add(profile_get_wait(), wait_time));
 }
 
 /// @return  true when a function defined in the current script should be
@@ -797,7 +801,7 @@ void script_line_start(void)
   if (si->sn_prof_on && SOURCING_LNUM >= 1) {
     // Grow the array before starting the timer, so that the time spent
     // here isn't counted.
-    (void)ga_grow(&si->sn_prl_ga, SOURCING_LNUM - si->sn_prl_ga.ga_len);
+    ga_grow(&si->sn_prl_ga, SOURCING_LNUM - si->sn_prl_ga.ga_len);
     si->sn_prl_idx = SOURCING_LNUM - 1;
     while (si->sn_prl_ga.ga_len <= si->sn_prl_idx
            && si->sn_prl_ga.ga_len < si->sn_prl_ga.ga_maxlen) {
@@ -906,7 +910,7 @@ void time_start(const char *message)
   // initialize the global variables
   g_prev_time = g_start_time = profile_start();
 
-  fprintf(time_fd, "\n\ntimes in msec\n");
+  fprintf(time_fd, "\ntimes in msec\n");
   fprintf(time_fd, " clock   self+sourced   self:  sourced script\n");
   fprintf(time_fd, " clock   elapsed:              other lines\n\n");
 
@@ -942,4 +946,47 @@ void time_msg(const char *mesg, const proftime_T *start)
   // reset `g_prev_time` and print the message
   g_prev_time = now;
   fprintf(time_fd, ": %s\n", mesg);
+}
+
+/// Initializes the `time_fd` stream for the --startuptime report.
+///
+/// @param fname startuptime report file path
+/// @param proc_name name of the current Nvim process to write in the report.
+void time_init(const char *fname, const char *proc_name)
+{
+  const size_t bufsize = 8192;  // Big enough for the entire --startuptime report.
+  time_fd = fopen(fname, "a");
+  if (time_fd == NULL) {
+    fprintf(stderr, _(e_notopen), fname);
+    return;
+  }
+  startuptime_buf = xmalloc(sizeof(char) * (bufsize + 1));
+  // The startuptime file is (potentially) written by multiple Nvim processes concurrently. So each
+  // report is buffered, and flushed to disk (`time_finish`) once after startup. `_IOFBF` mode
+  // ensures the buffer is not auto-flushed ("controlled buffering").
+  int r = setvbuf(time_fd, startuptime_buf, _IOFBF, bufsize + 1);
+  if (r != 0) {
+    XFREE_CLEAR(startuptime_buf);
+    fclose(time_fd);
+    time_fd = NULL;
+    fprintf(stderr, "time_init: setvbuf failed: %d %s", r, uv_err_name(r));
+    return;
+  }
+  fprintf(time_fd, "--- Startup times for process: %s ---\n", proc_name);
+}
+
+/// Flushes the startuptimes to disk for the current process
+void time_finish(void)
+{
+  if (time_fd == NULL) {
+    return;
+  }
+  assert(startuptime_buf != NULL);
+  TIME_MSG("--- NVIM STARTED ---\n");
+
+  // flush buffer to disk
+  fclose(time_fd);
+  time_fd = NULL;
+
+  XFREE_CLEAR(startuptime_buf);
 }

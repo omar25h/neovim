@@ -9,10 +9,18 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "klib/kvec.h"
 #include "nvim/arglist.h"
+#include "nvim/arglist_defs.h"
 #include "nvim/ascii_defs.h"
+#include "nvim/autocmd.h"
+#include "nvim/autocmd_defs.h"
 #include "nvim/buffer.h"
+#include "nvim/buffer_defs.h"
+#include "nvim/errors.h"
 #include "nvim/eval.h"
+#include "nvim/eval/typval.h"
+#include "nvim/eval/typval_defs.h"
 #include "nvim/ex_cmds_defs.h"
 #include "nvim/ex_docmd.h"
 #include "nvim/ex_getln.h"
@@ -20,20 +28,24 @@
 #include "nvim/file_search.h"
 #include "nvim/fileio.h"
 #include "nvim/fold.h"
-#include "nvim/garray.h"
-#include "nvim/gettext.h"
+#include "nvim/garray_defs.h"
+#include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
 #include "nvim/macros_defs.h"
 #include "nvim/mapping.h"
+#include "nvim/mbyte.h"
 #include "nvim/memory.h"
 #include "nvim/message.h"
 #include "nvim/option.h"
 #include "nvim/option_vars.h"
 #include "nvim/os/fs.h"
 #include "nvim/os/os.h"
+#include "nvim/os/os_defs.h"
 #include "nvim/path.h"
 #include "nvim/pos_defs.h"
 #include "nvim/runtime.h"
+#include "nvim/strings.h"
+#include "nvim/types_defs.h"
 #include "nvim/vim_defs.h"
 #include "nvim/window.h"
 
@@ -59,9 +71,9 @@ static int put_view_curpos(FILE *fd, const win_T *wp, char *spaces)
   return r >= 0;
 }
 
-static int ses_winsizes(FILE *fd, int restore_size, win_T *tab_firstwin)
+static int ses_winsizes(FILE *fd, bool restore_size, win_T *tab_firstwin)
 {
-  if (restore_size && (ssop_flags & SSOP_WINSIZE)) {
+  if (restore_size && (ssop_flags & kOptSsopFlagWinsize)) {
     int n = 0;
     for (win_T *wp = tab_firstwin; wp != NULL; wp = wp->w_next) {
       if (!ses_do_win(wp)) {
@@ -188,13 +200,13 @@ static int ses_do_win(win_T *wp)
   if (wp->w_buffer->b_fname == NULL
       // When 'buftype' is "nofile" can't restore the window contents.
       || (!wp->w_buffer->terminal && bt_nofilename(wp->w_buffer))) {
-    return ssop_flags & SSOP_BLANK;
+    return ssop_flags & kOptSsopFlagBlank;
   }
   if (bt_help(wp->w_buffer)) {
-    return ssop_flags & SSOP_HELP;
+    return ssop_flags & kOptSsopFlagHelp;
   }
   if (bt_terminal(wp->w_buffer)) {
-    return ssop_flags & SSOP_TERMINAL;
+    return ssop_flags & kOptSsopFlagTerminal;
   }
   return true;
 }
@@ -208,7 +220,7 @@ static int ses_do_win(win_T *wp)
 /// @param flagp
 ///
 /// @returns FAIL if writing fails.
-static int ses_arglist(FILE *fd, char *cmd, garray_T *gap, int fullname, unsigned *flagp)
+static int ses_arglist(FILE *fd, char *cmd, garray_T *gap, bool fullname, unsigned *flagp)
 {
   char *buf = NULL;
 
@@ -221,7 +233,7 @@ static int ses_arglist(FILE *fd, char *cmd, garray_T *gap, int fullname, unsigne
     if (s != NULL) {
       if (fullname) {
         buf = xmalloc(MAXPATHL);
-        (void)vim_FullName(s, buf, MAXPATHL, false);
+        vim_FullName(s, buf, MAXPATHL, false);
         s = buf;
       }
       char *fname_esc = ses_escape_fname(s, flagp);
@@ -247,7 +259,7 @@ static char *ses_get_fname(buf_T *buf, const unsigned *flagp)
   // directory is.
   if (buf->b_sfname != NULL
       && flagp == &ssop_flags
-      && (ssop_flags & (SSOP_CURDIR | SSOP_SESDIR))
+      && (ssop_flags & (kOptSsopFlagCurdir | kOptSsopFlagSesdir))
       && !p_acd
       && !did_lcd) {
     return buf->b_sfname;
@@ -279,7 +291,7 @@ static char *ses_escape_fname(char *name, unsigned *flagp)
   char *p;
   char *sname = home_replace_save(NULL, name);
 
-  // Always SSOP_SLASH: change all backslashes to forward slashes.
+  // Always kOptSsopFlagSlash: change all backslashes to forward slashes.
   for (p = sname; *p != NUL; MB_PTR_ADV(p)) {
     if (*p == '\\') {
       *p = '/';
@@ -314,11 +326,11 @@ static int ses_put_fname(FILE *fd, char *name, unsigned *flagp)
 static int put_view(FILE *fd, win_T *wp, int add_edit, unsigned *flagp, int current_arg_idx)
 {
   int f;
-  int did_next = false;
+  bool did_next = false;
 
   // Always restore cursor position for ":mksession".  For ":mkview" only
   // when 'viewoptions' contains "cursor".
-  int do_cursor = (flagp == &ssop_flags || *flagp & SSOP_CURSOR);
+  bool do_cursor = (flagp == &ssop_flags || *flagp & kOptSsopFlagCursor);
 
   // Local argument list.
   if (wp->w_alist == &global_alist) {
@@ -326,7 +338,7 @@ static int put_view(FILE *fd, win_T *wp, int add_edit, unsigned *flagp, int curr
   } else {
     if (ses_arglist(fd, "arglocal", &wp->w_alist->al_ga,
                     flagp == &vop_flags
-                    || !(*flagp & SSOP_CURDIR)
+                    || !(*flagp & kOptSsopFlagCurdir)
                     || wp->w_localdir != NULL, flagp) == FAIL) {
       return FAIL;
     }
@@ -358,6 +370,7 @@ static int put_view(FILE *fd, win_T *wp, int add_edit, unsigned *flagp, int curr
 
       if (put_line(fd, "enew | setl bt=help") == FAIL
           || fprintf(fd, "help %s", curtag) < 0 || put_eol(fd) == FAIL) {
+        xfree(fname_esc);
         return FAIL;
       }
     } else if (wp->w_buffer->b_ffname != NULL
@@ -406,7 +419,7 @@ static int put_view(FILE *fd, win_T *wp, int add_edit, unsigned *flagp, int curr
         && *alt->b_fname != NUL
         && alt->b_p_bl
         // do not set balt if buffer is terminal and "terminal" is not set in options
-        && !(bt_terminal(alt) && !(ssop_flags & SSOP_TERMINAL))
+        && !(bt_terminal(alt) && !(ssop_flags & kOptSsopFlagTerminal))
         && (fputs("balt ", fd) < 0
             || ses_fname(fd, alt, flagp, true) == FAIL)) {
       return FAIL;
@@ -414,7 +427,7 @@ static int put_view(FILE *fd, win_T *wp, int add_edit, unsigned *flagp, int curr
   }
 
   // Local mappings and abbreviations.
-  if ((*flagp & (SSOP_OPTIONS | SSOP_LOCALOPTIONS))
+  if ((*flagp & (kOptSsopFlagOptions | kOptSsopFlagLocaloptions))
       && makemap(fd, wp->w_buffer) == FAIL) {
     return FAIL;
   }
@@ -427,10 +440,10 @@ static int put_view(FILE *fd, win_T *wp, int add_edit, unsigned *flagp, int curr
   win_T *save_curwin = curwin;
   curwin = wp;
   curbuf = curwin->w_buffer;
-  if (*flagp & (SSOP_OPTIONS | SSOP_LOCALOPTIONS)) {
+  if (*flagp & (kOptSsopFlagOptions | kOptSsopFlagLocaloptions)) {
     f = makeset(fd, OPT_LOCAL,
-                flagp == &vop_flags || !(*flagp & SSOP_OPTIONS));
-  } else if (*flagp & SSOP_FOLDS) {
+                flagp == &vop_flags || !(*flagp & kOptSsopFlagOptions));
+  } else if (*flagp & kOptSsopFlagFolds) {
     f = makefoldset(fd);
   } else {
     f = OK;
@@ -442,7 +455,7 @@ static int put_view(FILE *fd, win_T *wp, int add_edit, unsigned *flagp, int curr
   }
 
   // Save Folds when 'buftype' is empty and for help files.
-  if ((*flagp & SSOP_FOLDS)
+  if ((*flagp & kOptSsopFlagFolds)
       && wp->w_buffer->b_ffname != NULL
       && (bt_normal(wp->w_buffer)
           || bt_help(wp->w_buffer))) {
@@ -505,7 +518,7 @@ static int put_view(FILE *fd, win_T *wp, int add_edit, unsigned *flagp, int curr
   // Local directory, if the current flag is not view options or the "curdir"
   // option is included.
   if (wp->w_localdir != NULL
-      && (flagp != &vop_flags || (*flagp & SSOP_CURDIR))) {
+      && (flagp != &vop_flags || (*flagp & kOptSsopFlagCurdir))) {
     if (fputs("lcd ", fd) < 0
         || ses_put_fname(fd, wp->w_localdir, flagp) == FAIL
         || fprintf(fd, "\n") < 0) {
@@ -517,9 +530,53 @@ static int put_view(FILE *fd, win_T *wp, int add_edit, unsigned *flagp, int curr
   return OK;
 }
 
+static int store_session_globals(FILE *fd)
+{
+  TV_DICT_ITER(&globvardict, this_var, {
+    if ((this_var->di_tv.v_type == VAR_NUMBER
+         || this_var->di_tv.v_type == VAR_STRING)
+        && var_flavour(this_var->di_key) == VAR_FLAVOUR_SESSION) {
+      // Escape special characters with a backslash.  Turn a LF and
+      // CR into \n and \r.
+      char *const p = vim_strsave_escaped(tv_get_string(&this_var->di_tv), "\\\"\n\r");
+      for (char *t = p; *t != NUL; t++) {
+        if (*t == '\n') {
+          *t = 'n';
+        } else if (*t == '\r') {
+          *t = 'r';
+        }
+      }
+      if ((fprintf(fd, "let %s = %c%s%c",
+                   this_var->di_key,
+                   ((this_var->di_tv.v_type == VAR_STRING) ? '"' : ' '),
+                   p,
+                   ((this_var->di_tv.v_type == VAR_STRING) ? '"' : ' ')) < 0)
+          || put_eol(fd) == FAIL) {
+        xfree(p);
+        return FAIL;
+      }
+      xfree(p);
+    } else if (this_var->di_tv.v_type == VAR_FLOAT
+               && var_flavour(this_var->di_key) == VAR_FLAVOUR_SESSION) {
+      float_T f = this_var->di_tv.vval.v_float;
+      int sign = ' ';
+
+      if (f < 0) {
+        f = -f;
+        sign = '-';
+      }
+      if ((fprintf(fd, "let %s = %c%f", this_var->di_key, sign, f) < 0)
+          || put_eol(fd) == FAIL) {
+        return FAIL;
+      }
+    }
+  });
+  return OK;
+}
+
 /// Writes commands for restoring the current buffers, for :mksession.
 ///
-/// Legacy 'sessionoptions'/'viewoptions' flags SSOP_UNIX, SSOP_SLASH are
+/// Legacy 'sessionoptions'/'viewoptions' flags kOptSsopFlagUnix, kOptSsopFlagSlash are
 /// always enabled.
 ///
 /// @param dirnow  Current directory name
@@ -528,21 +585,21 @@ static int put_view(FILE *fd, win_T *wp, int add_edit, unsigned *flagp, int curr
 /// @return FAIL on error, OK otherwise.
 static int makeopens(FILE *fd, char *dirnow)
 {
-  int only_save_windows = true;
-  int restore_size = true;
+  bool only_save_windows = true;
+  bool restore_size = true;
   win_T *edited_win = NULL;
   win_T *tab_firstwin;
   frame_T *tab_topframe;
   int cur_arg_idx = 0;
   int next_arg_idx = 0;
 
-  if (ssop_flags & SSOP_BUFFERS) {
+  if (ssop_flags & kOptSsopFlagBuffers) {
     only_save_windows = false;  // Save ALL buffers
   }
 
   // Begin by setting v:this_session, and then other sessionable variables.
   PUTLINE_FAIL("let v:this_session=expand(\"<sfile>:p\")");
-  if (ssop_flags & SSOP_GLOBALS) {
+  if (ssop_flags & kOptSsopFlagGlobals) {
     if (store_session_globals(fd) == FAIL) {
       return FAIL;
     }
@@ -550,15 +607,15 @@ static int makeopens(FILE *fd, char *dirnow)
 
   // Close all windows and tabs but one.
   PUTLINE_FAIL("silent only");
-  if ((ssop_flags & SSOP_TABPAGES)
+  if ((ssop_flags & kOptSsopFlagTabpages)
       && put_line(fd, "silent tabonly") == FAIL) {
     return FAIL;
   }
 
   // Now a :cd command to the session directory or the current directory
-  if (ssop_flags & SSOP_SESDIR) {
+  if (ssop_flags & kOptSsopFlagSesdir) {
     PUTLINE_FAIL("exe \"cd \" . escape(expand(\"<sfile>:p:h\"), ' ')");
-  } else if (ssop_flags & SSOP_CURDIR) {
+  } else if (ssop_flags & kOptSsopFlagCurdir) {
     char *sname = home_replace_save(NULL, globaldir != NULL ? globaldir : dirnow);
     char *fname_esc = ses_escape_fname(sname, &ssop_flags);
     if (fprintf(fd, "cd %s\n", fname_esc) < 0) {
@@ -582,7 +639,7 @@ static int makeopens(FILE *fd, char *dirnow)
   }
 
   // save 'shortmess' if not storing options
-  if ((ssop_flags & SSOP_OPTIONS) == 0) {
+  if ((ssop_flags & kOptSsopFlagOptions) == 0) {
     PUTLINE_FAIL("let s:shortmess_save = &shortmess");
   }
 
@@ -599,14 +656,13 @@ static int makeopens(FILE *fd, char *dirnow)
   // can be disrupted by prior `edit` or `tabedit` calls).
   FOR_ALL_BUFFERS(buf) {
     if (!(only_save_windows && buf->b_nwindows == 0)
-        && !(buf->b_help && !(ssop_flags & SSOP_HELP))
-        && !(bt_terminal(buf) && !(ssop_flags & SSOP_TERMINAL))
+        && !(buf->b_help && !(ssop_flags & kOptSsopFlagHelp))
+        && !(bt_terminal(buf) && !(ssop_flags & kOptSsopFlagTerminal))
         && buf->b_fname != NULL
         && buf->b_p_bl) {
       if (fprintf(fd, "badd +%" PRId64 " ",
-                  buf->b_wininfo == NULL
-                  ? 1
-                  : (int64_t)buf->b_wininfo->wi_mark.mark.lnum) < 0
+                  kv_size(buf->b_wininfo) == 0
+                  ? 1 : (int64_t)kv_A(buf->b_wininfo, 0)->wi_mark.mark.lnum) < 0
           || ses_fname(fd, buf, &ssop_flags, true) == FAIL) {
         return FAIL;
       }
@@ -615,11 +671,11 @@ static int makeopens(FILE *fd, char *dirnow)
 
   // the global argument list
   if (ses_arglist(fd, "argglobal", &global_alist.al_ga,
-                  !(ssop_flags & SSOP_CURDIR), &ssop_flags) == FAIL) {
+                  !(ssop_flags & kOptSsopFlagCurdir), &ssop_flags) == FAIL) {
     return FAIL;
   }
 
-  if (ssop_flags & SSOP_RESIZE) {
+  if (ssop_flags & kOptSsopFlagResize) {
     // Note: after the restore we still check it worked!
     if (fprintf(fd, "set lines=%" PRId64 " columns=%" PRId64 "\n",
                 (int64_t)Rows, (int64_t)Columns) < 0) {
@@ -627,7 +683,7 @@ static int makeopens(FILE *fd, char *dirnow)
     }
   }
 
-  int restore_stal = false;
+  bool restore_stal = false;
   // When there are two or more tabpages and 'showtabline' is 1 the tabline
   // will be displayed when creating the next tab.  That resizes the windows
   // in the first tab, which may cause problems.  Set 'showtabline' to 2
@@ -637,7 +693,7 @@ static int makeopens(FILE *fd, char *dirnow)
     restore_stal = true;
   }
 
-  if ((ssop_flags & SSOP_TABPAGES)) {
+  if ((ssop_flags & kOptSsopFlagTabpages)) {
     // "tabpages" is in 'sessionoptions': Similar to ses_win_rec() below,
     // populate the tab pages first so later local options won't be copied
     // to the new tabs.
@@ -665,7 +721,7 @@ static int makeopens(FILE *fd, char *dirnow)
     // 'sessionoptions'.
     // Don't use goto_tabpage(), it may change directory and trigger
     // autocommands.
-    if ((ssop_flags & SSOP_TABPAGES)) {
+    if ((ssop_flags & kOptSsopFlagTabpages)) {
       if (tp == curtab) {
         tab_firstwin = firstwin;
         tab_topframe = topframe;
@@ -765,7 +821,7 @@ static int makeopens(FILE *fd, char *dirnow)
     // Restore the tab-local working directory if specified
     // Do this before the windows, so that the window-local directory can
     // override the tab-local directory.
-    if ((ssop_flags & SSOP_CURDIR) && tp->tp_localdir != NULL) {
+    if ((ssop_flags & kOptSsopFlagCurdir) && tp->tp_localdir != NULL) {
       if (fputs("tcd ", fd) < 0
           || ses_put_fname(fd, tp->tp_localdir, &ssop_flags) == FAIL
           || put_eol(fd) == FAIL) {
@@ -807,12 +863,12 @@ static int makeopens(FILE *fd, char *dirnow)
 
     // Don't continue in another tab page when doing only the current one
     // or when at the last tab page.
-    if (!(ssop_flags & SSOP_TABPAGES)) {
+    if (!(ssop_flags & kOptSsopFlagTabpages)) {
       break;
     }
   }
 
-  if (ssop_flags & SSOP_TABPAGES) {
+  if (ssop_flags & kOptSsopFlagTabpages) {
     if (fprintf(fd, "tabnext %d\n", tabpage_index(curtab)) < 0) {
       return FAIL;
     }
@@ -839,7 +895,7 @@ static int makeopens(FILE *fd, char *dirnow)
   }
 
   // Restore 'shortmess'.
-  if (ssop_flags & SSOP_OPTIONS) {
+  if (ssop_flags & kOptSsopFlagOptions) {
     if (fprintf(fd, "set shortmess=%s\n", p_shm) < 0) {
       return FAIL;
     }
@@ -882,11 +938,11 @@ void ex_loadview(exarg_T *eap)
 /// ":mkexrc", ":mkvimrc", ":mkview", ":mksession".
 ///
 /// Legacy 'sessionoptions'/'viewoptions' flags are always enabled:
-///   - SSOP_UNIX: line-endings are LF
-///   - SSOP_SLASH: filenames are written with "/" slash
+///   - kOptSsopFlagUnix: line-endings are LF
+///   - kOptSsopFlagSlash: filenames are written with "/" slash
 void ex_mkrc(exarg_T *eap)
 {
-  int view_session = false;  // :mkview, :mksession
+  bool view_session = false;  // :mkview, :mksession
   int using_vdir = false;  // using 'viewdir'?
   char *viewFile = NULL;
 
@@ -927,7 +983,7 @@ void ex_mkrc(exarg_T *eap)
 
   FILE *fd = open_exfile(fname, eap->forceit, WRITEBIN);
   if (fd != NULL) {
-    int failed = false;
+    bool failed = false;
     unsigned *flagp;
     if (eap->cmdidx == CMD_mkview) {
       flagp = &vop_flags;
@@ -937,7 +993,7 @@ void ex_mkrc(exarg_T *eap)
 
     // Write the version command for :mkvimrc
     if (eap->cmdidx == CMD_mkvimrc) {
-      (void)put_line(fd, "version 6.0");
+      put_line(fd, "version 6.0");
     }
 
     if (eap->cmdidx == CMD_mksession) {
@@ -947,10 +1003,10 @@ void ex_mkrc(exarg_T *eap)
     }
 
     if (!view_session || (eap->cmdidx == CMD_mksession
-                          && (*flagp & SSOP_OPTIONS))) {
+                          && (*flagp & kOptSsopFlagOptions))) {
       int flags = OPT_GLOBAL;
 
-      if (eap->cmdidx == CMD_mksession && (*flagp & SSOP_SKIP_RTP)) {
+      if (eap->cmdidx == CMD_mksession && (*flagp & kOptSsopFlagSkiprtp)) {
         flags |= OPT_SKIPRTP;
       }
       failed |= (makemap(fd, NULL) == FAIL
@@ -973,12 +1029,12 @@ void ex_mkrc(exarg_T *eap)
             || os_chdir(dirnow) != 0) {
           *dirnow = NUL;
         }
-        if (*dirnow != NUL && (ssop_flags & SSOP_SESDIR)) {
+        if (*dirnow != NUL && (ssop_flags & kOptSsopFlagSesdir)) {
           if (vim_chdirfile(fname, kCdCauseOther) == OK) {
             shorten_fnames(true);
           }
         } else if (*dirnow != NUL
-                   && (ssop_flags & SSOP_CURDIR) && globaldir != NULL) {
+                   && (ssop_flags & kOptSsopFlagCurdir) && globaldir != NULL) {
           if (os_chdir(globaldir) == 0) {
             shorten_fnames(true);
           }
@@ -987,8 +1043,8 @@ void ex_mkrc(exarg_T *eap)
         failed |= (makeopens(fd, dirnow) == FAIL);
 
         // restore original dir
-        if (*dirnow != NUL && ((ssop_flags & SSOP_SESDIR)
-                               || ((ssop_flags & SSOP_CURDIR) && globaldir !=
+        if (*dirnow != NUL && ((ssop_flags & kOptSsopFlagSesdir)
+                               || ((ssop_flags & kOptSsopFlagCurdir) && globaldir !=
                                    NULL))) {
           if (os_chdir(dirnow) != 0) {
             emsg(_(e_prev_dir));
@@ -1039,6 +1095,8 @@ void ex_mkrc(exarg_T *eap)
   }
 
   xfree(viewFile);
+
+  apply_autocmds(EVENT_SESSIONWRITEPOST, NULL, NULL, false, curbuf);
 }
 
 /// @return  the name of the view file for the current buffer.
@@ -1082,7 +1140,7 @@ static char *get_view_file(char c)
   }
   *s++ = '=';
   *s++ = c;
-  xstrlcpy(s, ".vim", 5);
+  xmemcpyz(s, S_LEN(".vim"));
 
   xfree(sname);
   return retval;

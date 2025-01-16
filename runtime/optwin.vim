@@ -1,7 +1,7 @@
 " These commands create the option window.
 "
 " Maintainer:	The Vim Project <https://github.com/vim/vim>
-" Last Change:	2023 Aug 31
+" Last Change:	2024 Dec 07
 " Former Maintainer:	Bram Moolenaar <Bram@vim.org>
 
 " If there already is an option window, jump to that one.
@@ -444,6 +444,7 @@ if has("statusline")
   call <SID>AddOption("statusline", gettext("alternate format to be used for a status line"))
   call <SID>OptionG("stl", &stl)
 endif
+call append("$", "\t" .. s:local_to_window)
 call <SID>AddOption("equalalways", gettext("make all windows the same size when adding/removing windows"))
 call <SID>BinOptionG("ea", &ea)
 call <SID>AddOption("eadirection", gettext("in which direction 'equalalways' works: \"ver\", \"hor\" or \"both\""))
@@ -452,6 +453,8 @@ call <SID>AddOption("winheight", gettext("minimal number of lines used for the c
 call append("$", " \tset wh=" . &wh)
 call <SID>AddOption("winminheight", gettext("minimal number of lines used for any window"))
 call append("$", " \tset wmh=" . &wmh)
+call <SID>AddOption("winfixbuf", gettext("keep window focused on a single buffer"))
+call <SID>OptionG("wfb", &wfb)
 call <SID>AddOption("winfixheight", gettext("keep the height of the window"))
 call append("$", "\t" .. s:local_to_window)
 call <SID>BinOptionL("wfh")
@@ -504,6 +507,8 @@ endif
 call <SID>Header(gettext("multiple tab pages"))
 call <SID>AddOption("showtabline", gettext("0, 1 or 2; when to use a tab pages line"))
 call append("$", " \tset stal=" . &stal)
+call <SID>AddOption("tabclose", gettext("behaviour when closing tab pages: left, uselast or empty"))
+call append("$", " \tset tcl=" . &tcl)
 call <SID>AddOption("tabpagemax", gettext("maximum number of tab pages to open for -p and \"tab all\""))
 call append("$", " \tset tpm=" . &tpm)
 call <SID>AddOption("tabline", gettext("custom tab pages line"))
@@ -621,6 +626,8 @@ call <SID>AddOption("terse", gettext("add 's' flag in 'shortmess' (don't show se
 call <SID>BinOptionG("terse", &terse)
 call <SID>AddOption("shortmess", gettext("list of flags to make messages shorter"))
 call <SID>OptionG("shm", &shm)
+call <SID>AddOption("messagesopt", gettext("options for outputting messages"))
+call <SID>OptionG("mopt", &mopt)
 call <SID>AddOption("showcmd", gettext("show (partial) command keys in location given by 'showcmdloc'"))
 let &sc = s:old_sc
 call <SID>BinOptionG("sc", &sc)
@@ -720,7 +727,9 @@ if has("insert_expand")
   call append("$", "\t" .. s:local_to_buffer)
   call <SID>OptionL("cpt")
   call <SID>AddOption("completeopt", gettext("whether to use a popup menu for Insert mode completion"))
-  call <SID>OptionG("cot", &cot)
+  call <SID>OptionL("cot")
+  call <SID>AddOption("completeitemalign", gettext("popup menu item align order"))
+  call <SID>OptionG("cia", &cia)
   call <SID>AddOption("pumheight", gettext("maximum height of the popup menu"))
   call <SID>OptionG("ph", &ph)
   call <SID>AddOption("pumwidth", gettext("minimum width of the popup menu"))

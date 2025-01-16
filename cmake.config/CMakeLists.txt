@@ -79,6 +79,17 @@ int main(void)
 }
 " HAVE_PWD_FUNCS)
 
+check_c_source_compiles("
+#include <intrin.h>
+
+int main(void)
+{
+  unsigned long index;
+  unsigned char mask = 0x8000;
+  _BitScanForward64(&index, mask);
+  return 0;
+}
+" HAVE_BITSCANFORWARD64)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "SunOS")
   check_c_source_compiles("
@@ -139,23 +150,48 @@ configure_file (
   "${PROJECT_BINARY_DIR}/cmake.config/auto/config.h"
   )
 
-# Prevent double space in --version output if CMAKE_C_FLAGS is empty
-set(C_FLAGS_VERSION_OUTPUT ${CMAKE_C_FLAGS})
-if(C_FLAGS_VERSION_OUTPUT)
-  string(PREPEND C_FLAGS_VERSION_OUTPUT " ")
-endif()
+set(VERSION_STRING "${CMAKE_C_COMPILER} ${CMAKE_C_FLAGS} ")
 
-if(${CMAKE_VERSION} VERSION_GREATER_EQUAL 3.15)
-  configure_file(versiondef.h.in auto/versiondef.h.gen)
-else()
-  configure_file(versiondef_old.h.in auto/versiondef.h.gen)
-endif()
+foreach(BUILD_TYPE Debug Release RelWithDebInfo MinSizeRel)
+  string(TOUPPER ${BUILD_TYPE} BUILD_TYPE_UPPER)
+  set(GEN_CONFIG "$<CONFIG:${BUILD_TYPE}>")
+
+  set(GEN_RHS "${CMAKE_C_FLAGS_${BUILD_TYPE_UPPER}} ")
+  string(APPEND VERSION_STRING "$<${GEN_CONFIG}:${GEN_RHS}>")
+
+  set(GEN_RHS "$<$<BOOL:$<TARGET_PROPERTY:nvim_bin,INTERPROCEDURAL_OPTIMIZATION_${BUILD_TYPE_UPPER}>>:${CMAKE_C_COMPILE_OPTIONS_IPO}>")
+  string(APPEND VERSION_STRING "$<${GEN_CONFIG}:${GEN_RHS}>")
+endforeach()
+
+string(APPEND VERSION_STRING " ")
+
+function(append_target_expression)
+  cmake_parse_arguments(ARG
+    ""
+    "PREFIX;PROPERTY"
+    ""
+    ${ARGN})
+
+  set(TARGET_EXPRESSION "$<TARGET_PROPERTY:nvim_bin,${ARG_PROPERTY}>")
+  set(TARGET_EXPRESSION "$<REMOVE_DUPLICATES:${TARGET_EXPRESSION}>")
+  set(TARGET_EXPRESSION "${ARG_PREFIX}$<JOIN:${TARGET_EXPRESSION}, ${ARG_PREFIX}>")
+
+  set(VERSION_STRING "${VERSION_STRING} ${TARGET_EXPRESSION} " PARENT_SCOPE)
+endfunction()
+append_target_expression(PROPERTY COMPILE_OPTIONS)
+append_target_expression(PROPERTY LINK_OPTIONS)
+append_target_expression(PREFIX "-D" PROPERTY COMPILE_DEFINITIONS)
+append_target_expression(PREFIX "-I" PROPERTY INCLUDE_DIRECTORIES)
+string(REPLACE ";" " " VERSION_STRING "${VERSION_STRING}")
+string(REPLACE "  " " " VERSION_STRING "${VERSION_STRING}")
+
+configure_file(versiondef.h.in auto/versiondef.h.gen)
 
 file(GENERATE
   OUTPUT "${PROJECT_BINARY_DIR}/cmake.config/auto/versiondef-$<CONFIG>.h"
   INPUT "${PROJECT_BINARY_DIR}/cmake.config/auto/versiondef.h.gen")
 
 configure_file (
-  "${PROJECT_SOURCE_DIR}/cmake.config/pathdef.c.in"
-  "${PROJECT_BINARY_DIR}/cmake.config/auto/pathdef.c"
+  "${PROJECT_SOURCE_DIR}/cmake.config/pathdef.h.in"
+  "${PROJECT_BINARY_DIR}/cmake.config/auto/pathdef.h"
   ESCAPE_QUOTES)

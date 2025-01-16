@@ -1,6 +1,8 @@
-local helpers = require('test.functional.helpers')(after_each)
-local clear = helpers.clear
-local eq, eval = helpers.eq, helpers.eval
+local t = require('test.testutil')
+local n = require('test.functional.testnvim')()
+
+local clear = n.clear
+local eq, eval = t.eq, n.eval
 
 describe('glob2regpat()', function()
   before_each(clear)

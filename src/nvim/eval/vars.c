@@ -7,26 +7,30 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h>
+#include <uv.h>
 
 #include "nvim/ascii_defs.h"
 #include "nvim/autocmd.h"
+#include "nvim/autocmd_defs.h"
 #include "nvim/buffer_defs.h"
 #include "nvim/charset.h"
 #include "nvim/drawscreen.h"
+#include "nvim/errors.h"
 #include "nvim/eval.h"
 #include "nvim/eval/encode.h"
 #include "nvim/eval/funcs.h"
 #include "nvim/eval/typval.h"
+#include "nvim/eval/typval_defs.h"
 #include "nvim/eval/userfunc.h"
 #include "nvim/eval/vars.h"
 #include "nvim/eval/window.h"
+#include "nvim/eval_defs.h"
 #include "nvim/ex_cmds.h"
 #include "nvim/ex_cmds_defs.h"
 #include "nvim/ex_docmd.h"
 #include "nvim/ex_eval.h"
 #include "nvim/garray.h"
-#include "nvim/gettext.h"
+#include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
 #include "nvim/hashtab.h"
 #include "nvim/macros_defs.h"
@@ -35,13 +39,14 @@
 #include "nvim/ops.h"
 #include "nvim/option.h"
 #include "nvim/option_defs.h"
-#include "nvim/option_vars.h"
 #include "nvim/os/os.h"
 #include "nvim/search.h"
 #include "nvim/strings.h"
 #include "nvim/types_defs.h"
 #include "nvim/vim_defs.h"
 #include "nvim/window.h"
+
+typedef int (*ex_unletlock_callback)(lval_T *, char *, exarg_T *, int);
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "eval/vars.c.generated.h"
@@ -52,11 +57,13 @@
 #define DICT_MAXNEST 100        // maximum nesting of lists and dicts
 
 static const char *e_letunexp = N_("E18: Unexpected characters in :let");
+static const char e_double_semicolon_in_list_of_variables[]
+  = N_("E452: Double ; in list of variables");
 static const char *e_lock_unlock = N_("E940: Cannot lock or unlock variable %s");
 static const char e_setting_v_str_to_value_with_wrong_type[]
   = N_("E963: Setting v:%s to value with wrong type");
-static const char e_cannot_use_heredoc_here[]
-  = N_("E991: Cannot use =<< here");
+static const char e_missing_end_marker_str[] = N_("E990: Missing end marker '%s'");
+static const char e_cannot_use_heredoc_here[] = N_("E991: Cannot use =<< here");
 
 /// Evaluate one Vim expression {expr} in string "p" and append the
 /// resulting string to "gap".  "p" points to the opening "{".
@@ -81,7 +88,7 @@ char *eval_one_expr_in_str(char *p, garray_T *gap, bool evaluate)
   }
   if (evaluate) {
     *block_end = NUL;
-    char *expr_val = eval_to_string(block_start, true);
+    char *expr_val = eval_to_string(block_start, false, false);
     *block_end = '}';
     if (expr_val == NULL) {
       return NULL;
@@ -97,7 +104,7 @@ char *eval_one_expr_in_str(char *p, garray_T *gap, bool evaluate)
 /// string in allocated memory.  "{{" is reduced to "{" and "}}" to "}".
 /// Used for a heredoc assignment.
 /// Returns NULL for an error.
-char *eval_all_expr_in_str(char *str)
+static char *eval_all_expr_in_str(char *str)
 {
   garray_T ga;
   ga_init(&ga, 1, 80);
@@ -172,8 +179,15 @@ list_T *heredoc_get(exarg_T *eap, char *cmd, bool script_get)
   int text_indent_len = 0;
   char *text_indent = NULL;
   char dot[] = ".";
+  bool heredoc_in_string = false;
+  char *line_arg = NULL;
+  char *nl_ptr = vim_strchr(cmd, '\n');
 
-  if (eap->getline == NULL) {
+  if (nl_ptr != NULL) {
+    heredoc_in_string = true;
+    line_arg = nl_ptr + 1;
+    *nl_ptr = NUL;
+  } else if (eap->ea_getline == NULL) {
     emsg(_(e_cannot_use_heredoc_here));
     return NULL;
   }
@@ -209,11 +223,12 @@ list_T *heredoc_get(exarg_T *eap, char *cmd, bool script_get)
     break;
   }
 
+  const char comment_char = '"';
   // The marker is the next word.
-  if (*cmd != NUL && *cmd != '"') {
+  if (*cmd != NUL && *cmd != comment_char) {
     marker = skipwhite(cmd);
     char *p = skiptowhite(marker);
-    if (*skipwhite(p) != NUL && *skipwhite(p) != '"') {
+    if (*skipwhite(p) != NUL && *skipwhite(p) != comment_char) {
       semsg(_(e_trailing_arg), p);
       return NULL;
     }
@@ -239,13 +254,34 @@ list_T *heredoc_get(exarg_T *eap, char *cmd, bool script_get)
     int mi = 0;
     int ti = 0;
 
-    xfree(theline);
-    theline = eap->getline(NUL, eap->cookie, 0, false);
-    if (theline == NULL) {
-      if (!script_get) {
-        semsg(_("E990: Missing end marker '%s'"), marker);
+    if (heredoc_in_string) {
+      // heredoc in a string separated by newlines.  Get the next line
+      // from the string.
+
+      if (*line_arg == NUL) {
+        if (!script_get) {
+          semsg(_(e_missing_end_marker_str), marker);
+        }
+        break;
       }
-      break;
+
+      theline = line_arg;
+      char *next_line = vim_strchr(theline, '\n');
+      if (next_line == NULL) {
+        line_arg += strlen(line_arg);
+      } else {
+        *next_line = NUL;
+        line_arg = next_line + 1;
+      }
+    } else {
+      xfree(theline);
+      theline = eap->ea_getline(NUL, eap->cookie, 0, false);
+      if (theline == NULL) {
+        if (!script_get) {
+          semsg(_(e_missing_end_marker_str), marker);
+        }
+        break;
+      }
     }
 
     // with "trim": skip the indent matching the :let line to find the
@@ -291,13 +327,17 @@ list_T *heredoc_get(exarg_T *eap, char *cmd, bool script_get)
         eval_failed = true;
         continue;
       }
-      xfree(theline);
-      theline = str;
+      tv_list_append_allocated_string(l, str);
+    } else {
+      tv_list_append_string(l, str, -1);
     }
-
-    tv_list_append_string(l, str, -1);
   }
-  xfree(theline);
+  if (heredoc_in_string) {
+    // Next command follows the heredoc in the string.
+    eap->nextcmd = line_arg;
+  } else {
+    xfree(theline);
+  }
   xfree(text_indent);
 
   if (eval_failed) {
@@ -336,7 +376,7 @@ void ex_let(exarg_T *eap)
   const char *argend;
   int first = true;
 
-  argend = skip_var_list(arg, &var_count, &semicolon);
+  argend = skip_var_list(arg, &var_count, &semicolon, false);
   if (argend == NULL) {
     return;
   }
@@ -376,7 +416,7 @@ void ex_let(exarg_T *eap)
       if (!eap->skip) {
         op[0] = '=';
         op[1] = NUL;
-        (void)ex_let_vars(eap->arg, &rettv, false, semicolon, var_count, is_const, op);
+        ex_let_vars(eap->arg, &rettv, false, semicolon, var_count, is_const, op);
       }
       tv_clear(&rettv);
     }
@@ -413,7 +453,7 @@ void ex_let(exarg_T *eap)
   clear_evalarg(&evalarg, eap);
 
   if (!eap->skip && eval_res != FAIL) {
-    (void)ex_let_vars(eap->arg, &rettv, false, semicolon, var_count, is_const, op);
+    ex_let_vars(eap->arg, &rettv, false, semicolon, var_count, is_const, op);
   }
   if (eval_res != FAIL) {
     tv_clear(&rettv);
@@ -510,10 +550,11 @@ int ex_let_vars(char *arg_start, typval_T *tv, int copy, int semicolon, int var_
 /// Skip over assignable variable "var" or list of variables "[var, var]".
 /// Used for ":let varvar = expr" and ":for varvar in expr".
 /// For "[var, var]" increment "*var_count" for each variable.
-/// for "[var, var; var]" set "semicolon".
+/// for "[var, var; var]" set "semicolon" to 1.
+/// If "silent" is true do not give an "invalid argument" error message.
 ///
 /// @return  NULL for an error.
-const char *skip_var_list(const char *arg, int *var_count, int *semicolon)
+const char *skip_var_list(const char *arg, int *var_count, int *semicolon, bool silent)
 {
   if (*arg == '[') {
     const char *s;
@@ -523,7 +564,9 @@ const char *skip_var_list(const char *arg, int *var_count, int *semicolon)
       p = skipwhite(p + 1);             // skip whites after '[', ';' or ','
       s = skip_var_one(p);
       if (s == p) {
-        semsg(_(e_invarg2), p);
+        if (!silent) {
+          semsg(_(e_invarg2), p);
+        }
         return NULL;
       }
       (*var_count)++;
@@ -533,12 +576,16 @@ const char *skip_var_list(const char *arg, int *var_count, int *semicolon)
         break;
       } else if (*p == ';') {
         if (*semicolon == 1) {
-          emsg(_("E452: Double ; in list of variables"));
+          if (!silent) {
+            emsg(_(e_double_semicolon_in_list_of_variables));
+          }
           return NULL;
         }
         *semicolon = 1;
       } else if (*p != ',') {
-        semsg(_(e_invarg2), p);
+        if (!silent) {
+          semsg(_(e_invarg2), p);
+        }
         return NULL;
       }
     }
@@ -616,7 +663,7 @@ static void list_tab_vars(int *first)
 /// List variables in "arg".
 static const char *list_arg_vars(exarg_T *eap, const char *arg, int *first)
 {
-  int error = false;
+  bool error = false;
   int len;
   const char *name;
   const char *name_start;
@@ -761,11 +808,12 @@ static char *ex_let_option(char *arg, typval_T *const tv, const bool is_const,
 
   // Find the end of the name.
   char *arg_end = NULL;
-  int scope;
-  char *const p = (char *)find_option_end((const char **)&arg, &scope);
-  if (p == NULL
-      || (endchars != NULL
-          && vim_strchr(endchars, (uint8_t)(*skipwhite(p))) == NULL)) {
+  OptIndex opt_idx;
+  int opt_flags;
+
+  char *const p = (char *)find_option_var_end((const char **)&arg, &opt_idx, &opt_flags);
+
+  if (p == NULL || (endchars != NULL && vim_strchr(endchars, (uint8_t)(*skipwhite(p))) == NULL)) {
     emsg(_(e_letunexp));
     return NULL;
   }
@@ -774,10 +822,8 @@ static char *ex_let_option(char *arg, typval_T *const tv, const bool is_const,
   *p = NUL;
 
   bool is_tty_opt = is_tty_option(arg);
-  OptIndex opt_idx = is_tty_opt ? kOptInvalid : findoption(arg);
-  uint32_t opt_p_flags = get_option_flags(opt_idx);
   bool hidden = is_option_hidden(opt_idx);
-  OptVal curval = is_tty_opt ? get_tty_option(arg) : get_option_value(opt_idx, scope);
+  OptVal curval = is_tty_opt ? get_tty_option(arg) : get_option_value(opt_idx, opt_flags);
   OptVal newval = NIL_OPTVAL;
 
   if (curval.type == kOptValTypeNil) {
@@ -792,16 +838,15 @@ static char *ex_let_option(char *arg, typval_T *const tv, const bool is_const,
   }
 
   bool error;
-  newval = tv_to_optval(tv, arg, opt_p_flags, &error);
+  newval = tv_to_optval(tv, opt_idx, arg, &error);
   if (error) {
     goto theend;
   }
 
-  // Don't assume current and new values are of the same type in order to future-proof the code for
-  // when an option can have multiple types.
-  const bool is_num = ((curval.type == kOptValTypeNumber || curval.type == kOptValTypeBoolean)
-                       && (newval.type == kOptValTypeNumber || newval.type == kOptValTypeBoolean));
-  const bool is_string = curval.type == kOptValTypeString && newval.type == kOptValTypeString;
+  // Current value and new value must have the same type.
+  assert(curval.type == newval.type);
+  const bool is_num = curval.type == kOptValTypeNumber || curval.type == kOptValTypeBoolean;
+  const bool is_string = curval.type == kOptValTypeString;
 
   if (op != NULL && *op != '=') {
     if (!hidden && is_num) {  // number or bool
@@ -826,15 +871,19 @@ static char *ex_let_option(char *arg, typval_T *const tv, const bool is_const,
       } else {
         newval = BOOLEAN_OPTVAL(TRISTATE_FROM_INT(new_n));
       }
-    } else if (!hidden && is_string
-               && curval.data.string.data != NULL && newval.data.string.data != NULL) {  // string
-      OptVal newval_old = newval;
-      newval = CSTR_AS_OPTVAL(concat_str(curval.data.string.data, newval.data.string.data));
-      optval_free(newval_old);
+    } else if (!hidden && is_string) {  // string
+      const char *curval_data = curval.data.string.data;
+      const char *newval_data = newval.data.string.data;
+
+      if (curval_data != NULL && newval_data != NULL) {
+        OptVal newval_old = newval;
+        newval = CSTR_AS_OPTVAL(concat_str(curval_data, newval_data));
+        optval_free(newval_old);
+      }
     }
   }
 
-  const char *err = set_option_value_handle_tty(arg, opt_idx, newval, scope);
+  const char *err = set_option_value_handle_tty(arg, opt_idx, newval, opt_flags);
   arg_end = p;
   if (err != NULL) {
     emsg(_(err));
@@ -1061,7 +1110,7 @@ static int do_unlet_var(lval_T *lp, char *name_end, exarg_T *eap, int deep FUNC_
     // unlet a List item.
     tv_list_item_remove(lp->ll_list, lp->ll_li);
   } else {
-    // unlet a Dictionary item.
+    // unlet a Dict item.
     dict_T *d = lp->ll_dict;
     assert(d != NULL);
     dictitem_T *di = lp->ll_di;
@@ -1236,7 +1285,7 @@ static int do_lock_var(lval_T *lp, char *name_end FUNC_ATTR_UNUSED, exarg_T *eap
     // (un)lock a List item.
     tv_item_lock(TV_LIST_ITEM_TV(lp->ll_li), deep, lock, false);
   } else {
-    // (un)lock a Dictionary item.
+    // (un)lock a Dict item.
     tv_item_lock(&lp->ll_di->di_tv, deep, lock, false);
   }
 
@@ -1302,7 +1351,7 @@ void vars_clear(hashtab_T *ht)
 }
 
 /// Like vars_clear(), but only free the value if "free_val" is true.
-void vars_clear_ext(hashtab_T *ht, int free_val)
+void vars_clear_ext(hashtab_T *ht, bool free_val)
 {
   int todo;
   hashitem_T *hi;
@@ -1356,11 +1405,12 @@ static void list_one_var(dictitem_T *v, const char *prefix, int *first)
 static void list_one_var_a(const char *prefix, const char *name, const ptrdiff_t name_len,
                            const VarType type, const char *string, int *first)
 {
+  msg_ext_set_kind("list_cmd");
   // don't use msg() to avoid overwriting "v:statusmsg"
   msg_start();
   msg_puts(prefix);
   if (name != NULL) {  // "a:" vars don't have a name stored
-    msg_puts_len(name, name_len, 0);
+    msg_puts_len(name, name_len, 0, false);
   }
   msg_putchar(' ');
   msg_advance(22);
@@ -1382,7 +1432,7 @@ static void list_one_var_a(const char *prefix, const char *name, const ptrdiff_t
     msg_putchar(' ');
   }
 
-  msg_outtrans(string, 0);
+  msg_outtrans(string, 0, false);
 
   if (type == VAR_FUNC || type == VAR_PARTIAL) {
     msg_puts("()");
@@ -1849,22 +1899,25 @@ static void getwinvar(typval_T *argvars, typval_T *rettv, int off)
 ///
 /// @return  Typval converted to OptVal. Must be freed by caller.
 ///          Returns NIL_OPTVAL for invalid option name.
-static OptVal tv_to_optval(typval_T *tv, const char *option, uint32_t flags, bool *error)
+static OptVal tv_to_optval(typval_T *tv, OptIndex opt_idx, const char *option, bool *error)
 {
   OptVal value = NIL_OPTVAL;
   char nbuf[NUMBUFLEN];
   bool err = false;
+  const bool is_tty_opt = is_tty_option(option);
+  const bool option_has_bool = !is_tty_opt && option_has_type(opt_idx, kOptValTypeBoolean);
+  const bool option_has_num = !is_tty_opt && option_has_type(opt_idx, kOptValTypeNumber);
+  const bool option_has_str = is_tty_opt || option_has_type(opt_idx, kOptValTypeString);
 
-  if ((flags & P_FUNC) && tv_is_func(*tv)) {
+  if (!is_tty_opt && (get_option(opt_idx)->flags & kOptFlagFunc) && tv_is_func(*tv)) {
     // If the option can be set to a function reference or a lambda
     // and the passed value is a function reference, then convert it to
     // the name (string) of the function reference.
     char *strval = encode_tv2string(tv, NULL);
     err = strval == NULL;
     value = CSTR_AS_OPTVAL(strval);
-  } else if (flags & (P_NUM | P_BOOL)) {
-    varnumber_T n = (flags & P_NUM) ? tv_get_number_chk(tv, &err)
-                                    : tv_get_bool_chk(tv, &err);
+  } else if (option_has_bool || option_has_num) {
+    varnumber_T n = option_has_num ? tv_get_number_chk(tv, &err) : tv_get_bool_chk(tv, &err);
     // This could be either "0" or a string that's not a number.
     // So we need to check if it's actually a number.
     if (!err && tv->v_type == VAR_STRING && n == 0) {
@@ -1877,14 +1930,14 @@ static OptVal tv_to_optval(typval_T *tv, const char *option, uint32_t flags, boo
         semsg(_("E521: Number required: &%s = '%s'"), option, tv->vval.v_string);
       }
     }
-    value = (flags & P_NUM) ? NUMBER_OPTVAL((OptInt)n) : BOOLEAN_OPTVAL(TRISTATE_FROM_INT(n));
-  } else if ((flags & P_STRING) || is_tty_option(option)) {
+    value = option_has_num ? NUMBER_OPTVAL((OptInt)n) : BOOLEAN_OPTVAL(TRISTATE_FROM_INT(n));
+  } else if (option_has_str) {
     // Avoid setting string option to a boolean or a special value.
     if (tv->v_type != VAR_BOOL && tv->v_type != VAR_SPECIAL) {
       const char *strval = tv_get_string_buf_chk(tv, nbuf);
       err = strval == NULL;
       value = CSTR_TO_OPTVAL(strval);
-    } else if (flags & P_STRING) {
+    } else if (!is_tty_opt) {
       err = true;
       emsg(_(e_stringreq));
     }
@@ -1900,10 +1953,12 @@ static OptVal tv_to_optval(typval_T *tv, const char *option, uint32_t flags, boo
 
 /// Convert an option value to typval.
 ///
-/// @param[in]  value  Option value to convert.
+/// @param[in]  value    Option value to convert.
+/// @param      numbool  Whether to convert boolean values to number.
+///                      Used for backwards compatibility.
 ///
 /// @return  OptVal converted to typval.
-typval_T optval_as_tv(OptVal value)
+typval_T optval_as_tv(OptVal value, bool numbool)
 {
   typval_T rettv = { .v_type = VAR_SPECIAL, .vval = { .v_special = kSpecialVarNull } };
 
@@ -1911,19 +1966,14 @@ typval_T optval_as_tv(OptVal value)
   case kOptValTypeNil:
     break;
   case kOptValTypeBoolean:
-    switch (value.data.boolean) {
-    case kTrue:
+    if (numbool) {
+      rettv.v_type = VAR_NUMBER;
+      rettv.vval.v_number = value.data.boolean;
+    } else if (value.data.boolean != kNone) {
       rettv.v_type = VAR_BOOL;
-      rettv.vval.v_bool = kBoolVarTrue;
-      break;
-    case kFalse:
-      rettv.v_type = VAR_BOOL;
-      rettv.vval.v_bool = kBoolVarFalse;
-      break;
-    case kNone:
-      break;  // return v:null for None boolean value
+      rettv.vval.v_bool = value.data.boolean == kTrue;
     }
-    break;
+    break;  // return v:null for None boolean value.
   case kOptValTypeNumber:
     rettv.v_type = VAR_NUMBER;
     rettv.vval.v_number = value.data.number;
@@ -1940,15 +1990,14 @@ typval_T optval_as_tv(OptVal value)
 /// Set option "varname" to the value of "varp" for the current buffer/window.
 static void set_option_from_tv(const char *varname, typval_T *varp)
 {
-  OptIndex opt_idx = findoption(varname);
+  OptIndex opt_idx = find_option(varname);
   if (opt_idx == kOptInvalid) {
     semsg(_(e_unknown_option2), varname);
     return;
   }
 
   bool error = false;
-  uint32_t opt_p_flags = get_option_flags(opt_idx);
-  OptVal value = tv_to_optval(varp, varname, opt_p_flags, &error);
+  OptVal value = tv_to_optval(varp, opt_idx, varname, &error);
 
   if (!error) {
     const char *errmsg = set_option_value_handle_tty(varname, opt_idx, value, OPT_LOCAL);
@@ -1961,7 +2010,7 @@ static void set_option_from_tv(const char *varname, typval_T *varp)
 }
 
 /// "setwinvar()" and "settabwinvar()" functions
-static void setwinvar(typval_T *argvars, typval_T *rettv, int off)
+static void setwinvar(typval_T *argvars, int off)
 {
   if (check_secure()) {
     return;
@@ -2070,8 +2119,6 @@ void f_getbufvar(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 /// "settabvar()" function
 void f_settabvar(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 {
-  rettv->vval.v_number = 0;
-
   if (check_secure()) {
     return;
   }
@@ -2085,6 +2132,7 @@ void f_settabvar(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
   }
 
   tabpage_T *const save_curtab = curtab;
+  tabpage_T *const save_lu_tp = lastused_tabpage;
   goto_tabpage_tp(tp, false, false);
 
   const size_t varname_len = strlen(varname);
@@ -2094,22 +2142,25 @@ void f_settabvar(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
   set_var(tabvarname, varname_len + 2, varp, true);
   xfree(tabvarname);
 
-  // Restore current tabpage.
+  // Restore current tabpage and last accessed tabpage.
   if (valid_tabpage(save_curtab)) {
     goto_tabpage_tp(save_curtab, false, false);
+    if (valid_tabpage(save_lu_tp)) {
+      lastused_tabpage = save_lu_tp;
+    }
   }
 }
 
 /// "settabwinvar()" function
 void f_settabwinvar(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 {
-  setwinvar(argvars, rettv, 1);
+  setwinvar(argvars, 1);
 }
 
 /// "setwinvar()" function
 void f_setwinvar(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 {
-  setwinvar(argvars, rettv, 0);
+  setwinvar(argvars, 0);
 }
 
 /// "setbufvar()" function

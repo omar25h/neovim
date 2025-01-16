@@ -19,7 +19,8 @@
 #include "nvim/eval.h"
 #include "nvim/ex_cmds_defs.h"
 #include "nvim/garray.h"
-#include "nvim/gettext.h"
+#include "nvim/gettext_defs.h"
+#include "nvim/globals.h"
 #include "nvim/macros_defs.h"
 #include "nvim/memory.h"
 #include "nvim/message.h"
@@ -79,17 +80,21 @@ static char *get_mess_env(void)
   return get_locale_val(LC_MESSAGES);
 #else
   char *p = (char *)os_getenv("LC_ALL");
+  if (p != NULL) {
+    return p;
+  }
+
+  p = (char *)os_getenv("LC_MESSAGES");
+  if (p != NULL) {
+    return p;
+  }
+
+  p = (char *)os_getenv("LANG");
+  if (p != NULL && ascii_isdigit(*p)) {
+    p = NULL;  // ignore something like "1043"
+  }
   if (p == NULL) {
-    p = (char *)os_getenv("LC_MESSAGES");
-    if (p == NULL) {
-      p = (char *)os_getenv("LANG");
-      if (p != NULL && ascii_isdigit(*p)) {
-        p = NULL;  // ignore something like "1043"
-      }
-      if (p == NULL) {
-        p = get_locale_val(LC_CTYPE);
-      }
-    }
+    p = get_locale_val(LC_CTYPE);
   }
   return p;
 #endif
@@ -99,9 +104,7 @@ static char *get_mess_env(void)
 /// Also do "v:lc_time"and "v:ctype".
 void set_lang_var(void)
 {
-  const char *loc;
-
-  loc = get_locale_val(LC_CTYPE);
+  const char *loc = get_locale_val(LC_CTYPE);
   set_vim_var_string(VV_CTYPE, loc, -1);
 
   loc = get_mess_env();
@@ -142,8 +145,6 @@ void init_locale(void)
 void ex_language(exarg_T *eap)
 {
   char *loc;
-  char *p;
-  char *name;
   int what = LC_ALL;
   char *whatstr = "";
 #ifdef LC_MESSAGES
@@ -152,12 +153,12 @@ void ex_language(exarg_T *eap)
 # define VIM_LC_MESSAGES 6789
 #endif
 
-  name = eap->arg;
+  char *name = eap->arg;
 
   // Check for "messages {name}", "ctype {name}" or "time {name}" argument.
   // Allow abbreviation, but require at least 3 characters to avoid
   // confusion with a two letter language name "me" or "ct".
-  p = skiptowhite(eap->arg);
+  char *p = skiptowhite(eap->arg);
   if ((*p == NUL || ascii_iswhite(*p)) && p - eap->arg >= 3) {
     if (STRNICMP(eap->arg, "messages", p - eap->arg) == 0) {
       what = VIM_LC_MESSAGES;
@@ -248,7 +249,6 @@ static bool did_init_locales = false;
 static char **find_locales(void)
 {
   garray_T locales_ga;
-  char *loc;
   char *saveptr = NULL;
 
   // Find all available locales by running command "locale -a".  If this
@@ -261,7 +261,7 @@ static char **find_locales(void)
 
   // Transform locale_a string where each locale is separated by "\n"
   // into an array of locale strings.
-  loc = os_strtok(locale_a, "\n", &saveptr);
+  char *loc = os_strtok(locale_a, "\n", &saveptr);
 
   while (loc != NULL) {
     loc = xstrdup(loc);

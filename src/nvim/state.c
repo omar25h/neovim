@@ -3,10 +3,14 @@
 
 #include "nvim/ascii_defs.h"
 #include "nvim/autocmd.h"
+#include "nvim/autocmd_defs.h"
+#include "nvim/buffer_defs.h"
 #include "nvim/drawscreen.h"
 #include "nvim/eval.h"
 #include "nvim/eval/typval.h"
+#include "nvim/eval/typval_defs.h"
 #include "nvim/event/defs.h"
+#include "nvim/event/loop.h"
 #include "nvim/event/multiqueue.h"
 #include "nvim/ex_getln.h"
 #include "nvim/getchar.h"
@@ -62,20 +66,21 @@ getkey:
       // Event was made available after the last multiqueue_process_events call
       key = K_EVENT;
     } else {
-      // Duplicate display updating logic in vgetorpeek()
-      if (((State & MODE_INSERT) != 0 || p_lz) && (State & MODE_CMDLINE) == 0
-          && must_redraw != 0 && !need_wait_return) {
+      // Ensure the screen is fully updated before blocking for input. Because of the duality of
+      // redraw_later, this can't be done in command-line or when waiting for "Press ENTER".
+      // In many of those cases the redraw is expected AFTER the key press, while normally it should
+      // update the screen immediately.
+      if (must_redraw != 0 && !need_wait_return && (State & MODE_CMDLINE) == 0) {
         update_screen();
         setcursor();  // put cursor back where it belongs
       }
       // Flush screen updates before blocking.
       ui_flush();
-      // Call `os_inchar` directly to block for events or user input without
-      // consuming anything from `input_buffer`(os/input.c) or calling the
-      // mapping engine.
-      (void)os_inchar(NULL, 0, -1, typebuf.tb_change_cnt, main_loop.events);
+      // Call `input_get` directly to block for events or user input without consuming anything from
+      // `os/input.c:input_buffer` or calling the mapping engine.
+      input_get(NULL, 0, -1, typebuf.tb_change_cnt, main_loop.events);
       // If an event was put into the queue, we send K_EVENT directly.
-      if (!multiqueue_empty(main_loop.events)) {
+      if (!input_available() && !multiqueue_empty(main_loop.events)) {
         key = K_EVENT;
       } else {
         goto getkey;
@@ -131,19 +136,25 @@ void state_handle_k_event(void)
 }
 
 /// Return true if in the current mode we need to use virtual.
-bool virtual_active(void)
+bool virtual_active(win_T *wp)
 {
-  unsigned cur_ve_flags = get_ve_flags();
-
   // While an operator is being executed we return "virtual_op", because
   // VIsual_active has already been reset, thus we can't check for "block"
   // being used.
   if (virtual_op != kNone) {
     return virtual_op;
   }
-  return cur_ve_flags == VE_ALL
-         || ((cur_ve_flags & VE_BLOCK) && VIsual_active && VIsual_mode == Ctrl_V)
-         || ((cur_ve_flags & VE_INSERT) && (State & MODE_INSERT));
+
+  // In Terminal mode the cursor can be positioned anywhere by the application
+  if (State & MODE_TERMINAL) {
+    return true;
+  }
+
+  unsigned cur_ve_flags = get_ve_flags(wp);
+
+  return cur_ve_flags == kOptVeFlagAll
+         || ((cur_ve_flags & kOptVeFlagBlock) && VIsual_active && VIsual_mode == Ctrl_V)
+         || ((cur_ve_flags & kOptVeFlagInsert) && (State & MODE_INSERT));
 }
 
 /// MODE_VISUAL, MODE_SELECT and MODE_OP_PENDING State are never set, they are
@@ -173,17 +184,8 @@ void get_mode(char *buf)
 {
   int i = 0;
 
-  if (VIsual_active) {
-    if (VIsual_select) {
-      buf[i++] = (char)(VIsual_mode + 's' - 'v');
-    } else {
-      buf[i++] = (char)VIsual_mode;
-      if (restart_VIsual_select) {
-        buf[i++] = 's';
-      }
-    }
-  } else if (State == MODE_HITRETURN || State == MODE_ASKMORE || State == MODE_SETWSIZE
-             || State == MODE_CONFIRM) {
+  if (State == MODE_HITRETURN || State == MODE_ASKMORE
+      || State == MODE_SETWSIZE || State == MODE_CONFIRM) {
     buf[i++] = 'r';
     if (State == MODE_ASKMORE) {
       buf[i++] = 'm';
@@ -218,6 +220,15 @@ void get_mode(char *buf)
     }
   } else if (State & MODE_TERMINAL) {
     buf[i++] = 't';
+  } else if (VIsual_active) {
+    if (VIsual_select) {
+      buf[i++] = (char)(VIsual_mode + 's' - 'v');
+    } else {
+      buf[i++] = (char)VIsual_mode;
+      if (restart_VIsual_select) {
+        buf[i++] = 's';
+      }
+    }
   } else {
     buf[i++] = 'n';
     if (finish_op) {
@@ -229,8 +240,7 @@ void get_mode(char *buf)
       if (restart_edit == 'I') {
         buf[i++] = 'T';
       }
-    } else if (restart_edit == 'I' || restart_edit == 'R'
-               || restart_edit == 'V') {
+    } else if (restart_edit == 'I' || restart_edit == 'R' || restart_edit == 'V') {
       buf[i++] = 'i';
       buf[i++] = (char)restart_edit;
     }
@@ -285,7 +295,7 @@ static bool is_safe_now(void)
          && !debug_mode;
 }
 
-/// Trigger SafeState if currently in s safe state, that is "safe" is TRUE and
+/// Trigger SafeState if currently in a safe state, that is "safe" is true and
 /// there is no typeahead.
 void may_trigger_safestate(bool safe)
 {

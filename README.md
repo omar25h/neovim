@@ -6,7 +6,6 @@
 </h1>
 
 [![Coverity Scan analysis](https://scan.coverity.com/projects/2227/badge.svg)](https://scan.coverity.com/projects/2227)
-[![Clang analysis](https://neovim.io/doc/reports/clang/badge.svg)](https://neovim.io/doc/reports/clang)
 [![Packages](https://repology.org/badge/tiny-repos/neovim.svg)](https://repology.org/metapackage/neovim)
 [![Debian CI](https://badges.debian.net/badges/debian/testing/neovim/version.svg)](https://buildd.debian.org/neovim)
 [![Downloads](https://img.shields.io/github/downloads/neovim/neovim/total.svg?maxAge=2592001)](https://github.com/neovim/neovim/releases/)
@@ -16,7 +15,7 @@ Neovim is a project that seeks to aggressively refactor [Vim](https://www.vim.or
 - Simplify maintenance and encourage [contributions](CONTRIBUTING.md)
 - Split the work between multiple developers
 - Enable [advanced UIs] without modifications to the core
-- Maximize [extensibility](https://github.com/neovim/neovim/wiki/Plugin-UI-architecture)
+- Maximize [extensibility](https://neovim.io/doc/user/ui.html)
 
 See the [Introduction](https://github.com/neovim/neovim/wiki/Introduction) wiki page and [Roadmap]
 for more information.
@@ -28,7 +27,7 @@ Features
 - [API access](https://github.com/neovim/neovim/wiki/Related-projects#api-clients)
   from any language including C/C++, C#, Clojure, D, Elixir, Go, Haskell, Java/Kotlin,
   JavaScript/Node.js, Julia, Lisp, Lua, Perl, Python, Racket, Ruby, Rust
-- Embedded, scriptable [terminal emulator](https://neovim.io/doc/user/nvim_terminal_emulator.html)
+- Embedded, scriptable [terminal emulator](https://neovim.io/doc/user/terminal.html)
 - Asynchronous [job control](https://github.com/neovim/neovim/pull/2247)
 - [Shared data (shada)](https://github.com/neovim/neovim/pull/2506) among multiple editor instances
 - [XDG base directories](https://github.com/neovim/neovim/pull/3470) support
@@ -47,7 +46,7 @@ Pre-built packages for Windows, macOS, and Linux are found on the
 Install from source
 -------------------
 
-See the [Building Neovim](https://github.com/neovim/neovim/wiki/Building-Neovim) wiki page and [supported platforms](https://neovim.io/doc/user/support.html#supported-platforms) for details.
+See [BUILD.md](./BUILD.md) and [supported platforms](https://neovim.io/doc/user/support.html#supported-platforms) for details.
 
 The build is CMake-based, but a Makefile is provided as a convenience.
 After installing the dependencies, run the following command.
@@ -113,7 +112,7 @@ Apache 2.0 license, except for contributions copied from Vim (identified by the
 [nvim-news]: https://neovim.io/doc/user/news.html
 [Roadmap]: https://neovim.io/roadmap/
 [advanced UIs]: https://github.com/neovim/neovim/wiki/Related-projects#gui
-[Managed packages]: https://github.com/neovim/neovim/wiki/Installing-Neovim#install-from-package
+[Managed packages]: ./INSTALL.md#install-from-package
 [Debian]: https://packages.debian.org/testing/neovim
 [Ubuntu]: https://packages.ubuntu.com/search?keywords=neovim
 [Fedora]: https://packages.fedoraproject.org/pkgs/neovim/neovim/

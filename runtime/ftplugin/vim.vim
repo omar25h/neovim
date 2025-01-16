@@ -1,8 +1,9 @@
 " Vim filetype plugin
-" Language:	Vim
-" Maintainer:	The Vim Project <https://github.com/vim/vim>
-" Last Change:	2023 Aug 10
+" Language:		Vim
+" Maintainer:		Doug Kearns <dougkearns@gmail.com>
+" Last Change:		2025 Jan 06
 " Former Maintainer:	Bram Moolenaar <Bram@vim.org>
+" Contributors:		Riley Bruins <ribru17@gmail.com> ('commentstring')
 
 " Only do this when not done yet for this buffer
 if exists("b:did_ftplugin")
@@ -49,26 +50,22 @@ setlocal isk+=#
 " Use :help to lookup the keyword under the cursor with K.
 setlocal keywordprg=:help
 
-" if "\n" .. getline(1, 10)->join("\n") =~# '\n\s*vim9\%[script]\>'
-if "\n" .. join(getline(1, 10), "\n") =~# '\n\s*vim9\%[script]\>'
-  " Set 'comments' to format dashed lists in comments
-  setlocal com=sO:#\ -,mO:#\ \ ,eO:##,:#
-  " Comments starts with # in Vim9 script
-  setlocal commentstring=#%s
+" Comments starts with # in Vim9 script.  We have to guess which one to use.
+if "\n" .. getline(1, 32)->join("\n") =~# '\n\s*vim9\%[script]\>'
+  setlocal commentstring=#\ %s
 else
-  setlocal com=sO:\"\ -,mO:\"\ \ ,eO:\"\",:\"
-  " Comments starts with a double quote in legacy script
   setlocal commentstring=\"%s
 endif
+
+" Set 'comments' to format dashed lists in comments, both in Vim9 and legacy
+" script.
+setlocal com=sO:#\ -,mO:#\ \ ,eO:##,:#\\\ ,:#,sO:\"\ -,mO:\"\ \ ,eO:\"\",:\"\\\ ,:\"
 
 
 " Format comments to be up to 78 characters long
 if &tw == 0
   setlocal tw=78
 endif
-
-" Prefer Vim help instead of manpages.
-setlocal keywordprg=:help
 
 if !exists("no_plugin_maps") && !exists("no_vim_maps")
   let b:did_add_maps = 1
@@ -106,8 +103,8 @@ if exists("loaded_matchit")
 	\ '\<try\>:\%(\%(^\||\)\s*\)\@<=\<cat\%[ch]\>:\%(\%(^\||\)\s*\)\@<=\<fina\%[lly]\>:\%(\%(^\||\)\s*\)\@<=\<endt\%[ry]\>,' ..
 	\ '\<aug\%[roup]\s\+\%(END\>\)\@!\S:\<aug\%[roup]\s\+END\>,' ..
 	\ '\<class\>:\<endclass\>,' ..
-	\ '\<inte\%[rface]\>:\<endinterface\>,' ..
-	\ '\<enu\%[m]\>:\<endenum\>,'
+	\ '\<interface\>:\<endinterface\>,' ..
+	\ '\<enum\>:\<endenum\>'
 
   " Ignore syntax region commands and settings, any 'en*' would clobber
   " if-endif.

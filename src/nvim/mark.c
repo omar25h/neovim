@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <limits.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -13,29 +14,37 @@
 #include "nvim/cursor.h"
 #include "nvim/diff.h"
 #include "nvim/edit.h"
+#include "nvim/errors.h"
 #include "nvim/eval/typval.h"
+#include "nvim/eval/typval_defs.h"
 #include "nvim/ex_cmds_defs.h"
 #include "nvim/extmark.h"
 #include "nvim/extmark_defs.h"
 #include "nvim/fold.h"
-#include "nvim/gettext.h"
+#include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
-#include "nvim/highlight.h"
+#include "nvim/highlight_defs.h"
 #include "nvim/mark.h"
 #include "nvim/mbyte.h"
 #include "nvim/memline.h"
 #include "nvim/memory.h"
 #include "nvim/message.h"
 #include "nvim/move.h"
-#include "nvim/normal.h"
+#include "nvim/normal_defs.h"
 #include "nvim/option_vars.h"
 #include "nvim/os/fs.h"
 #include "nvim/os/input.h"
 #include "nvim/os/os.h"
+#include "nvim/os/os_defs.h"
+#include "nvim/os/time.h"
+#include "nvim/os/time_defs.h"
 #include "nvim/path.h"
+#include "nvim/pos_defs.h"
 #include "nvim/quickfix.h"
 #include "nvim/strings.h"
+#include "nvim/tag.h"
 #include "nvim/textobject.h"
+#include "nvim/types_defs.h"
 #include "nvim/vim_defs.h"
 
 // This file contains routines to maintain and manipulate marks.
@@ -61,7 +70,7 @@ int setmark(int c)
 /// Free fmark_T item
 void free_fmark(fmark_T fm)
 {
-  tv_dict_unref(fm.additional_data);
+  xfree(fm.additional_data);
 }
 
 /// Free xfmark_T item
@@ -156,6 +165,56 @@ int setmark_pos(int c, pos_T *pos, int fnum, fmarkv_T *view_pt)
   return FAIL;
 }
 
+/// Remove every jump list entry referring to a given buffer.
+/// This function will also adjust the current jump list index.
+void mark_jumplist_forget_file(win_T *wp, int fnum)
+{
+  // Remove all jump list entries that match the deleted buffer.
+  for (int i = wp->w_jumplistlen - 1; i >= 0; i--) {
+    if (wp->w_jumplist[i].fmark.fnum == fnum) {
+      // Found an entry that we want to delete.
+      free_xfmark(wp->w_jumplist[i]);
+
+      // If the current jump list index is behind the entry we want to delete,
+      // move it back by one.
+      if (wp->w_jumplistidx > i) {
+        wp->w_jumplistidx--;
+      }
+
+      // Actually remove the entry from the jump list.
+      wp->w_jumplistlen--;
+      memmove(&wp->w_jumplist[i], &wp->w_jumplist[i + 1],
+              (size_t)(wp->w_jumplistlen - i) * sizeof(wp->w_jumplist[i]));
+    }
+  }
+}
+
+/// Delete every entry referring to file "fnum" from both the jumplist and the
+/// tag stack.
+void mark_forget_file(win_T *wp, int fnum)
+{
+  mark_jumplist_forget_file(wp, fnum);
+
+  // Remove all tag stack entries that match the deleted buffer.
+  for (int i = wp->w_tagstacklen - 1; i >= 0; i--) {
+    if (wp->w_tagstack[i].fmark.fnum == fnum) {
+      // Found an entry that we want to delete.
+      tagstack_clear_entry(&wp->w_tagstack[i]);
+
+      // If the current tag stack index is behind the entry we want to delete,
+      // move it back by one.
+      if (wp->w_tagstackidx > i) {
+        wp->w_tagstackidx--;
+      }
+
+      // Actually remove the entry from the tag stack.
+      wp->w_tagstacklen--;
+      memmove(&wp->w_tagstack[i], &wp->w_tagstack[i + 1],
+              (size_t)(wp->w_tagstacklen - i) * sizeof(wp->w_tagstack[i]));
+    }
+  }
+}
+
 // Set the previous context mark to the current position and add it to the
 // jump list.
 void setpcmark(void)
@@ -174,7 +233,7 @@ void setpcmark(void)
     curwin->w_pcmark.lnum = 1;
   }
 
-  if (jop_flags & JOP_STACK) {
+  if (jop_flags & kOptJopFlagStack) {
     // jumpoptions=stack: if we're somewhere in the middle of the jumplist
     // discard everything after the current index.
     if (curwin->w_jumplistidx < curwin->w_jumplistlen - 1) {
@@ -580,7 +639,7 @@ MarkMoveRes mark_move_to(fmark_T *fm, MarkMove flags)
   }
 
   if (res & kMarkSwitchedBuf || res & kMarkChangedCursor) {
-    check_cursor();
+    check_cursor(curwin);
   }
 end:
   return res;
@@ -897,9 +956,9 @@ static void show_one_mark(int c, char *arg, pos_T *p, char *name_arg, int curren
       msg_putchar('\n');
       if (!got_int) {
         snprintf(IObuff, IOSIZE, " %c %6" PRIdLINENR " %4d ", c, p->lnum, p->col);
-        msg_outtrans(IObuff, 0);
+        msg_outtrans(IObuff, 0, false);
         if (name != NULL) {
-          msg_outtrans(name, current ? HL_ATTR(HLF_D) : 0);
+          msg_outtrans(name, current ? HLF_D : 0, false);
         }
       }
     }
@@ -926,8 +985,8 @@ void ex_delmarks(exarg_T *eap)
     // clear specified marks only
     const Timestamp timestamp = os_time();
     for (char *p = eap->arg; *p != NUL; p++) {
-      int lower = ASCII_ISLOWER(*p);
-      int digit = ascii_isdigit(*p);
+      bool lower = ASCII_ISLOWER(*p);
+      bool digit = ascii_isdigit(*p);
       if (lower || digit || ASCII_ISUPPER(*p)) {
         if (p[1] == '-') {
           // clear range of marks
@@ -1022,9 +1081,8 @@ void ex_jumps(exarg_T *eap)
                i == curwin->w_jumplistidx ? '>' : ' ',
                i > curwin->w_jumplistidx ? i - curwin->w_jumplistidx : curwin->w_jumplistidx - i,
                curwin->w_jumplist[i].fmark.mark.lnum, curwin->w_jumplist[i].fmark.mark.col);
-      msg_outtrans(IObuff, 0);
-      msg_outtrans(name,
-                   curwin->w_jumplist[i].fmark.fnum == curbuf->b_fnum ? HL_ATTR(HLF_D) : 0);
+      msg_outtrans(IObuff, 0, false);
+      msg_outtrans(name, curwin->w_jumplist[i].fmark.fnum == curbuf->b_fnum ? HLF_D : 0, false);
       xfree(name);
       os_breakcheck();
     }
@@ -1059,9 +1117,9 @@ void ex_changes(exarg_T *eap)
                curwin->w_changelistidx ? i - curwin->w_changelistidx : curwin->w_changelistidx - i,
                curbuf->b_changelist[i].mark.lnum,
                curbuf->b_changelist[i].mark.col);
-      msg_outtrans(IObuff, 0);
+      msg_outtrans(IObuff, 0, false);
       char *name = mark_line(&curbuf->b_changelist[i].mark, 17);
-      msg_outtrans(name, HL_ATTR(HLF_D));
+      msg_outtrans(name, HLF_D, false);
       xfree(name);
       os_breakcheck();
     }
@@ -1235,11 +1293,11 @@ void mark_adjust_buf(buf_T *buf, linenr_T line1, linenr_T line2, linenr_T amount
       if (win != curwin || by_api) {
         if (win->w_topline >= line1 && win->w_topline <= line2) {
           if (amount == MAXLNUM) {                  // topline is deleted
-            if (line1 <= 1) {
-              win->w_topline = 1;
+            if (by_api && amount_after > line1 - line2 - 1) {
+              // api: if the deleted region was replaced with new contents, topline will
+              // get adjusted later as an effect of the adjusted cursor in fix_cursor()
             } else {
-              // api: if the deleted region was replaced with new contents, display that
-              win->w_topline = (by_api && amount_after > line1 - line2 - 1) ? line1 : line1 - 1;
+              win->w_topline = MAX(line1 - 1, 1);
             }
           } else if (win->w_topline > line1) {
             // keep topline on the same line, unless inserting just
@@ -1414,7 +1472,7 @@ void cleanup_jumplist(win_T *wp, bool loadfiles)
       mustfree = false;
     } else if (i > from + 1) {      // non-adjacent duplicate
       // jumpoptions=stack: remove duplicates only when adjacent.
-      mustfree = !(jop_flags & JOP_STACK);
+      mustfree = !(jop_flags & kOptJopFlagStack);
     } else {                        // adjacent duplicate
       mustfree = true;
     }
@@ -1707,7 +1765,7 @@ void mark_mb_adjustpos(buf_T *buf, pos_T *lp)
 {
   if (lp->col > 0 || lp->coladd > 1) {
     const char *const p = ml_get_buf(buf, lp->lnum);
-    if (*p == NUL || (int)strlen(p) < lp->col) {
+    if (*p == NUL || ml_get_buf_len(buf, lp->lnum) < lp->col) {
       lp->col = 0;
     } else {
       lp->col -= utf_head_off(p, p + lp->col);

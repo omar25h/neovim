@@ -5,8 +5,6 @@
 #include <stdlib.h>
 
 #include "nvim/map_defs.h"
-#include "nvim/pos_defs.h"
-#include "nvim/types_defs.h"
 
 /// A block number.
 ///
@@ -26,7 +24,7 @@ typedef int64_t blocknr_T;
 /// The free list is a single linked list, not sorted.
 /// The blocks in the free list have no block of memory allocated and
 /// the contents of the block in the file (if any) is irrelevant.
-typedef struct bhdr {
+typedef struct {
   blocknr_T bh_bnum;                 ///< key used in hash table
 
   void *bh_data;                     ///< pointer to memory (for used block)
@@ -44,10 +42,12 @@ typedef enum {
 } mfdirty_T;
 
 /// A memory file.
-typedef struct memfile {
+typedef struct {
   char *mf_fname;                    ///< name of the file
   char *mf_ffname;                   ///< idem, full path
   int mf_fd;                         ///< file descriptor
+  int mf_flags;                      ///< flags used when opening this memfile
+  bool mf_reopen;                    ///< mf_fd was closed, retry opening
   bhdr_T *mf_free_first;             ///< first block header in free list
 
   /// The used blocks are kept in mf_hash.

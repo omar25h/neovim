@@ -9,14 +9,16 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h>
+#include <uv.h>
 
 #include "klib/kvec.h"
 #include "nvim/api/private/defs.h"
 #include "nvim/ascii_defs.h"
+#include "nvim/buffer_defs.h"
 #include "nvim/globals.h"
 #include "nvim/grid.h"
 #include "nvim/highlight.h"
+#include "nvim/highlight_defs.h"
 #include "nvim/highlight_group.h"
 #include "nvim/log.h"
 #include "nvim/macros_defs.h"
@@ -77,13 +79,13 @@ void ui_comp_syn_init(void)
   dbghl_recompose = syn_check_group(S_LEN("RedrawDebugRecompose"));
 }
 
-void ui_comp_attach(UI *ui)
+void ui_comp_attach(RemoteUI *ui)
 {
   composed_uis++;
   ui->composed = true;
 }
 
-void ui_comp_detach(UI *ui)
+void ui_comp_detach(RemoteUI *ui)
 {
   composed_uis--;
   if (composed_uis == 0) {
@@ -97,6 +99,35 @@ void ui_comp_detach(UI *ui)
 bool ui_comp_should_draw(void)
 {
   return composed_uis != 0 && valid_screen;
+}
+
+/// Raises or lowers the layer, syncing comp_index with zindex.
+///
+/// This function adjusts the position of a layer in the layers array
+/// based on its zindex, either raising or lowering it.
+///
+/// @param[in]  layer_idx  Index of the layer to be raised or lowered.
+/// @param[in]  raise      Raise the layer if true, else lower it.
+void ui_comp_layers_adjust(size_t layer_idx, bool raise)
+{
+  size_t size = layers.size;
+  ScreenGrid *layer = layers.items[layer_idx];
+
+  if (raise) {
+    while (layer_idx < size - 1 && layer->zindex > layers.items[layer_idx + 1]->zindex) {
+      layers.items[layer_idx] = layers.items[layer_idx + 1];
+      layers.items[layer_idx]->comp_index = layer_idx;
+      layer_idx++;
+    }
+  } else {
+    while (layer_idx > 0 && layer->zindex < layers.items[layer_idx - 1]->zindex) {
+      layers.items[layer_idx] = layers.items[layer_idx - 1];
+      layers.items[layer_idx]->comp_index = layer_idx;
+      layer_idx--;
+    }
+  }
+  layers.items[layer_idx] = layer;
+  layer->comp_index = layer_idx;
 }
 
 /// Places `grid` at (col,row) position with (width * height) size.
@@ -273,7 +304,7 @@ ScreenGrid *ui_comp_mouse_focus(int row, int col)
 {
   for (ssize_t i = (ssize_t)kv_size(layers) - 1; i > 0; i--) {
     ScreenGrid *grid = kv_A(layers, i);
-    if (grid->focusable
+    if (grid->mouse_enabled
         && row >= grid->comp_row && row < grid->comp_row + grid->rows
         && col >= grid->comp_col && col < grid->comp_col + grid->cols) {
       return grid;
@@ -305,7 +336,8 @@ static void compose_line(Integer row, Integer startcol, Integer endcol, LineFlag
   startcol = MAX(startcol, 0);
   // in case we start on the right half of a double-width char, we need to
   // check the left half. But skip it in output if it wasn't doublewidth.
-  int skipstart = 0, skipend = 0;
+  int skipstart = 0;
+  int skipend = 0;
   if (startcol > 0 && (flags & kLineFlagInvalid)) {
     startcol--;
     skipstart = 1;
@@ -422,7 +454,7 @@ static void compose_line(Integer row, Integer startcol, Integer endcol, LineFlag
 
   for (int i = skipstart; i < (endcol - skipend) - startcol; i++) {
     if (attrbuf[i] < 0) {
-      if (rdb_flags & RDB_INVALID) {
+      if (rdb_flags & kOptRdbFlagInvalid) {
         abort();
       } else {
         attrbuf[i] = 0;
@@ -438,7 +470,7 @@ static void compose_line(Integer row, Integer startcol, Integer endcol, LineFlag
 static void compose_debug(Integer startrow, Integer endrow, Integer startcol, Integer endcol,
                           int syn_id, bool delay)
 {
-  if (!(rdb_flags & RDB_COMPOSITOR) || startcol >= endcol) {
+  if (!(rdb_flags & kOptRdbFlagCompositor) || startcol >= endcol) {
     return;
   }
 
@@ -634,7 +666,7 @@ void ui_comp_grid_scroll(Integer grid, Integer top, Integer bot, Integer left, I
     }
   } else {
     ui_composed_call_grid_scroll(1, top, bot, left, right, rows, cols);
-    if (rdb_flags & RDB_COMPOSITOR) {
+    if (rdb_flags & kOptRdbFlagCompositor) {
       debug_delay(2);
     }
   }

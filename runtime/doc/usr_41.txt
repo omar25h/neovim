@@ -610,10 +610,13 @@ String manipulation:					*string-functions*
 	toupper()		turn a string to uppercase
 	charclass()		class of a character
 	match()			position where a pattern matches in a string
+	matchbufline()		all the matches of a pattern in a buffer
 	matchend()		position where a pattern match ends in a string
 	matchfuzzy()		fuzzy matches a string in a list of strings
 	matchfuzzypos()		fuzzy matches a string in a list of strings
 	matchstr()		match of a pattern in a string
+	matchstrlist()		all the matches of a pattern in a List of
+				strings
 	matchstrpos()		match and positions of a pattern in a string
 	matchlist()		like matchstr() and also return submatches
 	stridx()		first index of a short string in a long string
@@ -662,6 +665,7 @@ List manipulation:					*list-functions*
 	filter()		remove selected items from a List
 	map()			change each List item
 	mapnew()		make a new List with changed items
+	foreach()		apply function to List items
 	reduce()		reduce a List to a value
 	slice()			take a slice of a List
 	sort()			sort a List
@@ -693,6 +697,7 @@ Dictionary manipulation:				*dict-functions*
 	filter()		remove selected entries from a Dictionary
 	map()			change each Dictionary entry
 	mapnew()		make a new Dictionary with changed items
+	foreach()		apply function to Dictionary items
 	keys()			get List of Dictionary keys
 	values()		get List of Dictionary values
 	items()			get List of Dictionary key-value pairs
@@ -788,6 +793,8 @@ Cursor and mark position:		*cursor-functions* *mark-functions*
 
 Working with text in the current buffer:		*text-functions*
 	getline()		get a line or list of lines from the buffer
+	getregion()		get a region of text from the buffer
+	getregionpos()		get a list of positions for a region
 	setline()		replace a line in the buffer
 	append()		append line or list of lines in the buffer
 	indent()		indent of a specific line
@@ -829,6 +836,7 @@ System functions and manipulation of files:
 	getfperm()		get the permissions of a file
 	setfperm()		set the permissions of a file
 	getftype()		get the kind of a file
+	isabsolutepath()	check if a path is absolute
 	isdirectory()		check if a directory exists
 	getfsize()		get the size of a file
 	getcwd()		get the current working directory
@@ -848,6 +856,7 @@ System functions and manipulation of files:
 	readblob()		read a file into a Blob
 	readdir()		get a List of file names in a directory
 	writefile()		write a List of lines or Blob into a file
+	filecopy()		copy a file {from} to {to}
 
 Date and Time:				*date-functions* *time-functions*
 	getftime()		get last modification time of a file
@@ -897,9 +906,12 @@ Buffers, windows and the argument list:
 	swapname()		get the swap file path of a buffer
 
 Command line:					*command-line-functions*
+	getcmdcomplpat()	get completion pattern of the current command
+				line
 	getcmdcompltype()	get the type of the current command line
 				completion
-	getcmdline()		get the current command line
+	getcmdline()		get the current command line input
+	getcmdprompt()		get the current command line prompt
 	getcmdpos()		get position of the cursor in the command line
 	getcmdscreenpos()	get screen position of the cursor in the
 				command line
@@ -942,7 +954,7 @@ Syntax and highlighting:	  *syntax-functions* *highlighting-functions*
 	synIDattr()		get a specific attribute of a syntax ID
 	synIDtrans()		get translated syntax ID
 	synstack()		get list of syntax IDs at a specific position
-	synconcealed()		get info about concealing
+	synconcealed()		get info about (syntax) concealing
 	diff_hlID()		get highlight ID for diff mode at a position
 	matchadd()		define a pattern to highlight (a "match")
 	matchaddpos()		define a list of positions to highlight
@@ -1091,7 +1103,8 @@ Various:					*various-functions*
 	did_filetype()		check if a FileType autocommand was used
 	eventhandler()		check if invoked by an event handler
 	getpid()		get process ID of Vim
-	getscriptinfo()		get list of sourced vim scripts
+	getscriptinfo()		get list of sourced Vim scripts
+	getstacktrace()		get current stack trace of Vim scripts
 
 	libcall()		call a function in an external library
 	libcallnr()		idem, returning a number
@@ -2494,13 +2507,9 @@ When you write a compiler file and put it in your personal runtime directory
 variable to make the default file skip the settings.
 							*:CompilerSet*
 The second mechanism is to use ":set" for ":compiler!" and ":setlocal" for
-":compiler".  Vim defines the ":CompilerSet" user command for this.  However,
-older Vim versions don't, thus your plugin should define it then.  This is an
-example: >
+":compiler".  Vim defines the ":CompilerSet" user command for this.  This is
+an example: >
 
-  if exists(":CompilerSet") != 2
-    command -nargs=* CompilerSet setlocal <args>
-  endif
   CompilerSet errorformat&		" use the default 'errorformat'
   CompilerSet makeprg=nmake
 

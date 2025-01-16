@@ -9,45 +9,44 @@
 --    test/functional/vimscript/<funcname>_spec.lua
 --    test/functional/vimscript/functions_spec.lua
 
-local helpers = require('test.functional.helpers')(after_each)
+local t = require('test.testutil')
+local n = require('test.functional.testnvim')()
 local Screen = require('test.functional.ui.screen')
 
-local mkdir = helpers.mkdir
-local clear = helpers.clear
-local eq = helpers.eq
-local exec = helpers.exec
-local exc_exec = helpers.exc_exec
-local exec_lua = helpers.exec_lua
-local exec_capture = helpers.exec_capture
-local eval = helpers.eval
-local command = helpers.command
-local write_file = helpers.write_file
-local meths = helpers.meths
-local sleep = helpers.sleep
-local matches = helpers.matches
-local pcall_err = helpers.pcall_err
-local assert_alive = helpers.assert_alive
-local poke_eventloop = helpers.poke_eventloop
-local feed = helpers.feed
-local expect_exit = helpers.expect_exit
+local mkdir = t.mkdir
+local clear = n.clear
+local eq = t.eq
+local exec = n.exec
+local exc_exec = n.exc_exec
+local exec_lua = n.exec_lua
+local exec_capture = n.exec_capture
+local eval = n.eval
+local command = n.command
+local write_file = t.write_file
+local api = n.api
+local sleep = vim.uv.sleep
+local assert_alive = n.assert_alive
+local poke_eventloop = n.poke_eventloop
+local feed = n.feed
+local expect_exit = n.expect_exit
 
 describe('Up to MAX_FUNC_ARGS arguments are handled by', function()
-  local max_func_args = 20  -- from eval.h
-  local range = helpers.funcs.range
+  local max_func_args = 20 -- from eval.h
+  local range = n.fn.range
 
   before_each(clear)
 
   it('printf()', function()
-    local printf = helpers.funcs.printf
-    local rep = helpers.funcs['repeat']
+    local printf = n.fn.printf
+    local rep = n.fn['repeat']
     local expected = '2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,'
-    eq(expected, printf(rep('%d,', max_func_args-1), unpack(range(2, max_func_args))))
+    eq(expected, printf(rep('%d,', max_func_args - 1), unpack(range(2, max_func_args))))
     local ret = exc_exec('call printf("", 2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21)')
     eq('Vim(call):E740: Too many arguments for function printf', ret)
   end)
 
   it('rpcnotify()', function()
-    local rpcnotify = helpers.funcs.rpcnotify
+    local rpcnotify = n.fn.rpcnotify
     local ret = rpcnotify(0, 'foo', unpack(range(3, max_func_args)))
     eq(1, ret)
     ret = exc_exec('call rpcnotify(0, "foo", 3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21)')
@@ -55,49 +54,49 @@ describe('Up to MAX_FUNC_ARGS arguments are handled by', function()
   end)
 end)
 
-describe("backtick expansion", function()
+describe('backtick expansion', function()
   setup(function()
     clear()
-    mkdir("test-backticks")
-    write_file("test-backticks/file1", "test file 1")
-    write_file("test-backticks/file2", "test file 2")
-    write_file("test-backticks/file3", "test file 3")
-    mkdir("test-backticks/subdir")
-    write_file("test-backticks/subdir/file4", "test file 4")
+    mkdir('test-backticks')
+    write_file('test-backticks/file1', 'test file 1')
+    write_file('test-backticks/file2', 'test file 2')
+    write_file('test-backticks/file3', 'test file 3')
+    mkdir('test-backticks/subdir')
+    write_file('test-backticks/subdir/file4', 'test file 4')
     -- Long path might cause "Press ENTER" prompt; use :silent to avoid it.
     command('silent cd test-backticks')
   end)
 
   teardown(function()
-    helpers.rmdir('test-backticks')
+    n.rmdir('test-backticks')
   end)
 
   it("with default 'shell'", function()
-    if helpers.is_os('win') then
-      command(":silent args `dir /b *2`")
+    if t.is_os('win') then
+      command(':silent args `dir /b *2`')
     else
-      command(":silent args `echo ***2`")
+      command(':silent args `echo ***2`')
     end
-    eq({ "file2", }, eval("argv()"))
-    if helpers.is_os('win') then
-      command(":silent args `dir /s/b *4`")
-      eq({ "subdir\\file4", }, eval("map(argv(), 'fnamemodify(v:val, \":.\")')"))
+    eq({ 'file2' }, eval('argv()'))
+    if t.is_os('win') then
+      command(':silent args `dir /s/b *4`')
+      eq({ 'subdir\\file4' }, eval('map(argv(), \'fnamemodify(v:val, ":.")\')'))
     else
-      command(":silent args `echo */*4`")
-      eq({ "subdir/file4", }, eval("argv()"))
+      command(':silent args `echo */*4`')
+      eq({ 'subdir/file4' }, eval('argv()'))
     end
   end)
 
-  it("with shell=fish", function()
+  it('with shell=fish', function()
     if eval("executable('fish')") == 0 then
       pending('missing "fish" command')
       return
     end
-    command("set shell=fish")
-    command(":silent args `echo ***2`")
-    eq({ "file2", }, eval("argv()"))
-    command(":silent args `echo */*4`")
-    eq({ "subdir/file4", }, eval("argv()"))
+    command('set shell=fish')
+    command(':silent args `echo ***2`')
+    eq({ 'file2' }, eval('argv()'))
+    command(':silent args `echo */*4`')
+    eq({ 'subdir/file4' }, eval('argv()'))
   end)
 end)
 
@@ -106,7 +105,9 @@ describe('List support code', function()
   local min_dur = 8
   local len = 131072
 
-  if not pending('does not actually allows interrupting with just got_int', function() end) then return end
+  if not pending('does not actually allows interrupting with just got_int', function() end) then
+    return
+  end
   -- The following tests are confirmed to work with os_breakcheck() just before
   -- `if (got_int) {break;}` in tv_list_copy and list_join_inner() and not to
   -- work without.
@@ -119,7 +120,7 @@ describe('List support code', function()
         let bl = range(%u)
         let dur = reltimestr(reltime(rt))
       ]]):format(len))
-      dur = tonumber(meths.get_var('dur'))
+      dur = tonumber(api.nvim_get_var('dur'))
       if dur >= min_dur then
         -- print(('Using len %u, dur %g'):format(len, dur))
         break
@@ -134,7 +135,7 @@ describe('List support code', function()
     feed('<C-c>')
     poke_eventloop()
     command('let t_dur = reltimestr(reltime(t_rt))')
-    local t_dur = tonumber(meths.get_var('t_dur'))
+    local t_dur = tonumber(api.nvim_get_var('t_dur'))
     if t_dur >= dur / 8 then
       eq(nil, ('Took too long to cancel: %g >= %g'):format(t_dur, dur / 8))
     end
@@ -145,7 +146,7 @@ describe('List support code', function()
     feed('<C-c>')
     poke_eventloop()
     command('let t_dur = reltimestr(reltime(t_rt))')
-    local t_dur = tonumber(meths.get_var('t_dur'))
+    local t_dur = tonumber(api.nvim_get_var('t_dur'))
     print(('t_dur: %g'):format(t_dur))
     if t_dur >= dur / 8 then
       eq(nil, ('Took too long to cancel: %g >= %g'):format(t_dur, dur / 8))
@@ -153,7 +154,7 @@ describe('List support code', function()
   end)
 end)
 
-describe("uncaught exception", function()
+describe('uncaught exception', function()
   before_each(clear)
 
   it('is not forgotten #13490', function()
@@ -164,11 +165,14 @@ describe("uncaught exception", function()
     -- from processing the others.
     -- Only the first thrown exception should be rethrown from the :try below, though.
     for i = 1, 3 do
-      write_file('throw' .. i .. '.vim', ([[
+      write_file(
+        'throw' .. i .. '.vim',
+        ([[
         let result ..= '%d'
         throw 'throw%d'
         let result ..= 'X'
-      ]]):format(i, i))
+      ]]):format(i, i)
+      )
     end
     finally(function()
       for i = 1, 3 do
@@ -183,31 +187,27 @@ describe("uncaught exception", function()
 
   it('multiline exception remains multiline #25350', function()
     local screen = Screen.new(80, 11)
-    screen:set_default_attr_ids({
-      [1] = {bold = true, reverse = true};  -- MsgSeparator
-      [2] = {foreground = Screen.colors.White, background = Screen.colors.Red};  -- ErrorMsg
-      [3] = {bold = true, foreground = Screen.colors.SeaGreen};  -- MoreMsg
-    })
-    screen:attach()
     exec_lua([[
       function _G.Oops()
         error("oops")
       end
     ]])
     feed(':try\rlua _G.Oops()\rendtry\r')
-    screen:expect{grid=[[
-      {1:                                                                                }|
+    screen:expect {
+      grid = [[
+      {3:                                                                                }|
       :try                                                                            |
       :  lua _G.Oops()                                                                |
       :  endtry                                                                       |
-      {2:Error detected while processing :}                                               |
-      {2:E5108: Error executing lua [string "<nvim>"]:2: oops}                            |
-      {2:stack traceback:}                                                                |
-      {2:        [C]: in function 'error'}                                                |
-      {2:        [string "<nvim>"]:2: in function 'Oops'}                                 |
-      {2:        [string ":lua"]:1: in main chunk}                                        |
-      {3:Press ENTER or type command to continue}^                                         |
-    ]]}
+      {9:Error detected while processing :}                                               |
+      {9:E5108: Error executing lua [string "<nvim>"]:2: oops}                            |
+      {9:stack traceback:}                                                                |
+      {9:        [C]: in function 'error'}                                                |
+      {9:        [string "<nvim>"]:2: in function 'Oops'}                                 |
+      {9:        [string ":lua"]:1: in main chunk}                                        |
+      {6:Press ENTER or type command to continue}^                                         |
+    ]],
+    }
   end)
 end)
 
@@ -217,73 +217,22 @@ describe('listing functions using :function', function()
   it('works for lambda functions with <lambda> #20466', function()
     command('let A = {-> 1}')
     local num = exec_capture('echo A'):match("function%('<lambda>(%d+)'%)")
-    eq(([[
+    eq(
+      ([[
    function <lambda>%s(...)
 1  return 1
-   endfunction]]):format(num), exec_capture(('function <lambda>%s'):format(num)))
-  end)
-
-  it('does not crash if another function is deleted while listing', function()
-    local screen = Screen.new(80, 24)
-    screen:attach()
-    matches('Vim%(function%):E454: Function list was modified$', pcall_err(exec_lua, [=[
-      vim.cmd([[
-        func Func1()
-        endfunc
-        func Func2()
-        endfunc
-        func Func3()
-        endfunc
-      ]])
-
-      local ns = vim.api.nvim_create_namespace('test')
-
-      vim.ui_attach(ns, { ext_messages = true }, function(event, _, content)
-        if event == 'msg_show' and content[1][2] == 'function Func1()'  then
-          vim.cmd('delfunc Func3')
-        end
-      end)
-
-      vim.cmd('function')
-
-      vim.ui_detach(ns)
-    ]=]))
-    assert_alive()
-  end)
-
-  it('does not crash if the same function is deleted while listing', function()
-    local screen = Screen.new(80, 24)
-    screen:attach()
-    matches('Vim%(function%):E454: Function list was modified$', pcall_err(exec_lua, [=[
-      vim.cmd([[
-        func Func1()
-        endfunc
-        func Func2()
-        endfunc
-        func Func3()
-        endfunc
-      ]])
-
-      local ns = vim.api.nvim_create_namespace('test')
-
-      vim.ui_attach(ns, { ext_messages = true }, function(event, _, content)
-        if event == 'msg_show' and content[1][2] == 'function Func1()'  then
-          vim.cmd('delfunc Func2')
-        end
-      end)
-
-      vim.cmd('function')
-
-      vim.ui_detach(ns)
-    ]=]))
-    assert_alive()
+   endfunction]]):format(num),
+      exec_capture(('function <lambda>%s'):format(num))
+    )
   end)
 end)
 
 it('no double-free in garbage collection #16287', function()
   clear()
   -- Don't use exec() here as using a named script reproduces the issue better.
-  write_file('Xgarbagecollect.vim', [[
+  write_file(
+    'Xgarbagecollect.vim',
+    [[
     func Foo() abort
       let s:args = [a:000]
       let foo0 = ""
@@ -306,7 +255,8 @@ it('no double-free in garbage collection #16287', function()
     set updatetime=1
     call Foo()
     call Foo()
-  ]])
+  ]]
+  )
   finally(function()
     os.remove('Xgarbagecollect.vim')
   end)

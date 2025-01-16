@@ -1,6 +1,5 @@
 #pragma once
 
-#include <stdbool.h>
 #include <stdint.h>
 
 // dummy to pass an ACL to a function
@@ -12,6 +11,10 @@ typedef uint32_t schar_T;
 typedef int32_t sattr_T;
 // must be at least as big as the biggest of schar_T, sattr_T, colnr_T
 typedef int32_t sscratch_T;
+
+// Includes final NUL. MAX_MCO is no longer used, but at least 4*(MAX_MCO+1)+1=29
+// ensures we can fit all composed chars which did fit before.
+#define MAX_SCHAR_SIZE 32
 
 // Opaque handle used by API clients to refer to various objects in vim
 typedef int handle_T;
@@ -49,9 +52,17 @@ typedef enum {
 
 typedef int64_t OptInt;
 
-// Range entry for the "b_signcols.invalid" map in which the keys are the range start.
+enum { SIGN_WIDTH = 2, };  ///< Number of display cells for a sign in the signcolumn
+
+typedef struct file_buffer buf_T;
+typedef struct loop Loop;
+typedef struct regprog regprog_T;
+typedef struct syn_state synstate_T;
+typedef struct terminal Terminal;
+typedef struct window_S win_T;
+
 typedef struct {
-  int end;  // End of the invalid range.
-  int add;  // Number of signs added in the invalid range, negative for deleted signs.
-} SignRange;
-#define SIGNRANGE_INIT { 0, 0 }
+  uint32_t nitems;
+  uint32_t nbytes;
+  char data[];
+} AdditionalData;

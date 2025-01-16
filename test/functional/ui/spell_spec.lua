@@ -1,14 +1,15 @@
 -- Test for scenarios involving 'spell'
 
-local helpers = require('test.functional.helpers')(after_each)
+local t = require('test.testutil')
+local n = require('test.functional.testnvim')()
 local Screen = require('test.functional.ui.screen')
-local clear = helpers.clear
-local exec = helpers.exec
-local feed = helpers.feed
-local insert = helpers.insert
-local meths = helpers.meths
-local curbufmeths = helpers.curbufmeths
-local is_os = helpers.is_os
+
+local clear = n.clear
+local exec = n.exec
+local feed = n.feed
+local insert = n.insert
+local api = n.api
+local is_os = t.is_os
 
 describe("'spell'", function()
   local screen
@@ -16,24 +17,26 @@ describe("'spell'", function()
   before_each(function()
     clear()
     screen = Screen.new(80, 8)
-    screen:attach()
-    screen:set_default_attr_ids( {
-      [0] = {bold=true, foreground=Screen.colors.Blue},
-      [1] = {special = Screen.colors.Red, undercurl = true},
-      [2] = {special = Screen.colors.Blue, undercurl = true},
-      [3] = {foreground = tonumber('0x6a0dad')},
-      [4] = {foreground = Screen.colors.Magenta},
-      [5] = {bold = true, foreground = Screen.colors.SeaGreen},
-      [6] = {foreground = Screen.colors.Red},
-      [7] = {foreground = Screen.colors.Blue},
-      [8] = {foreground = Screen.colors.Blue, special = Screen.colors.Red, undercurl = true},
-      [9] = {bold = true},
-      [10] = {background = Screen.colors.LightGrey, foreground = Screen.colors.DarkBlue},
+    screen:set_default_attr_ids({
+      [0] = { bold = true, foreground = Screen.colors.Blue },
+      [1] = { special = Screen.colors.Red, undercurl = true },
+      [2] = { special = Screen.colors.Blue, undercurl = true },
+      [3] = { foreground = tonumber('0x6a0dad') },
+      [4] = { foreground = Screen.colors.Magenta },
+      [5] = { bold = true, foreground = Screen.colors.SeaGreen },
+      [6] = { foreground = Screen.colors.Red },
+      [7] = { foreground = Screen.colors.Blue },
+      [8] = { foreground = Screen.colors.Blue, special = Screen.colors.Red, undercurl = true },
+      [9] = { bold = true },
+      [10] = { background = Screen.colors.LightGrey, foreground = Screen.colors.DarkBlue },
     })
   end)
 
   it('joins long lines #7937', function()
-    if is_os('openbsd') then pending('FIXME #12104', function() end) return end
+    if is_os('openbsd') then
+      pending('FIXME #12104', function() end)
+      return
+    end
     exec('set spell')
     insert([[
     Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod
@@ -54,7 +57,6 @@ describe("'spell'", function()
     {0:~                                                                               }|
                                                                                     |
     ]])
-
   end)
 
   -- oldtest: Test_spell_screendump()
@@ -258,9 +260,9 @@ describe("'spell'", function()
       {6:search hit BOTTOM, continuing at TOP}                                            |
     ]])
     exec('echo ""')
-    local ns = meths.create_namespace("spell")
+    local ns = api.nvim_create_namespace('spell')
     -- extmark with spell=true enables spell
-    local id = curbufmeths.set_extmark(ns, 1, 4, { end_row = 1, end_col = 10, spell = true })
+    local id = api.nvim_buf_set_extmark(0, ns, 1, 4, { end_row = 1, end_col = 10, spell = true })
     screen:expect([[
       {3:#include }{4:<stdbool.h>}                                                            |
       {5:bool} {1:func}({5:void});                                                                |
@@ -276,9 +278,9 @@ describe("'spell'", function()
       {0:~                                                                               }|*4
                                                                                       |
     ]])
-    curbufmeths.del_extmark(ns, id)
+    api.nvim_buf_del_extmark(0, ns, id)
     -- extmark with spell=false disables spell
-    id = curbufmeths.set_extmark(ns, 2, 18, { end_row = 2, end_col = 26, spell = false })
+    id = api.nvim_buf_set_extmark(0, ns, 2, 18, { end_row = 2, end_col = 26, spell = false })
     screen:expect([[
       {3:#include }{4:<stdbool.h>}                                                            |
       {5:bool} ^func({5:void});                                                                |
@@ -295,7 +297,7 @@ describe("'spell'", function()
       {6:search hit TOP, continuing at BOTTOM}                                            |
     ]])
     exec('echo ""')
-    curbufmeths.del_extmark(ns, id)
+    api.nvim_buf_del_extmark(0, ns, id)
     screen:expect([[
       {3:#include }{4:<stdbool.h>}                                                            |
       {5:bool} func({5:void});                                                                |
@@ -366,10 +368,89 @@ describe("'spell'", function()
       syntax match Constant "^.*$"
       call setline(1, "This is some text without any spell errors.")
     ]])
-    local ns = meths.create_namespace("spell")
-    curbufmeths.set_extmark(ns, 0, 0, { hl_group = 'WarningMsg', end_col = 43 })
+    local ns = api.nvim_create_namespace('spell')
+    api.nvim_buf_set_extmark(0, ns, 0, 0, { hl_group = 'WarningMsg', end_col = 43 })
     screen:expect([[
       {6:^This is some text without any spell errors.}|
+      {0:~                                          }|
+                                                 |
+    ]])
+  end)
+
+  it('overrides syntax when Visual selection is active', function()
+    screen:try_resize(43, 3)
+    screen:set_default_attr_ids({
+      [0] = { bold = true, foreground = Screen.colors.Blue },
+      [1] = { foreground = Screen.colors.Blue },
+      [2] = { foreground = Screen.colors.Red },
+      [3] = { foreground = Screen.colors.Blue, underline = true },
+      [4] = { foreground = Screen.colors.Red, underline = true },
+      [5] = { bold = true },
+    })
+    exec([[
+      hi! Comment guibg=NONE guifg=Blue gui=NONE guisp=NONE
+      hi! SpellBad guibg=NONE guifg=Red gui=NONE guisp=NONE
+      hi! Visual guibg=NONE guifg=NONE gui=underline guisp=NONE
+      syn match Comment "//.*"
+      call setline(1, '// Here is a misspeld word.')
+      set spell
+    ]])
+    screen:expect([[
+      {1:^// Here is a }{2:misspeld}{1: word.}                |
+      {0:~                                          }|
+                                                 |
+    ]])
+    feed('V')
+    screen:expect([[
+      {1:^/}{3:/ Here is a }{4:misspeld}{3: word.}                |
+      {0:~                                          }|
+      {5:-- VISUAL LINE --}                          |
+    ]])
+  end)
+
+  it("global value works properly for 'spelloptions'", function()
+    screen:try_resize(43, 3)
+    exec('set spell')
+    -- :setglobal applies to future buffers but not current buffer
+    exec('setglobal spelloptions=camel')
+    insert('Here is TheCamelWord being spellchecked')
+    screen:expect([[
+      Here is {1:TheCamelWord} being spellchecke^d    |
+      {0:~                                          }|
+                                                 |
+    ]])
+    exec('enew')
+    insert('There is TheCamelWord being spellchecked')
+    screen:expect([[
+      There is TheCamelWord being spellchecke^d   |
+      {0:~                                          }|
+                                                 |
+    ]])
+    -- :setlocal applies to current buffer but not future buffers
+    exec('setlocal spelloptions=')
+    screen:expect([[
+      There is {1:TheCamelWord} being spellchecke^d   |
+      {0:~                                          }|
+                                                 |
+    ]])
+    exec('enew')
+    insert('What is TheCamelWord being spellchecked')
+    screen:expect([[
+      What is TheCamelWord being spellchecke^d    |
+      {0:~                                          }|
+                                                 |
+    ]])
+    -- :set applies to both current buffer and future buffers
+    exec('set spelloptions=')
+    screen:expect([[
+      What is {1:TheCamelWord} being spellchecke^d    |
+      {0:~                                          }|
+                                                 |
+    ]])
+    exec('enew')
+    insert('Where is TheCamelWord being spellchecked')
+    screen:expect([[
+      Where is {1:TheCamelWord} being spellchecke^d   |
       {0:~                                          }|
                                                  |
     ]])

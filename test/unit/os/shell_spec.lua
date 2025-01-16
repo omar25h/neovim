@@ -1,14 +1,14 @@
-local helpers = require('test.unit.helpers')(after_each)
-local itp = helpers.gen_itp(it)
-local cimported = helpers.cimport(
+local t = require('test.unit.testutil')
+local itp = t.gen_itp(it)
+local cimported = t.cimport(
   './src/nvim/os/shell.h',
   './src/nvim/option_vars.h',
   './src/nvim/main.h',
   './src/nvim/memory.h'
 )
-local ffi, eq = helpers.ffi, helpers.eq
-local intern = helpers.internalize
-local to_cstr = helpers.to_cstr
+local ffi, eq = t.ffi, t.eq
+local intern = t.internalize
+local to_cstr = t.to_cstr
 local NULL = ffi.cast('void *', 0)
 
 describe('shell functions', function()
@@ -125,9 +125,9 @@ describe('shell functions', function()
       cimported.p_sxe = to_cstr('"&|<>()@^')
 
       local argv = ffi.cast('char**', cimported.shell_build_argv(to_cstr('echo &|<>()@^'), nil))
-      eq(ffi.string(argv[0]), '/bin/sh')
-      eq(ffi.string(argv[1]), '-c')
-      eq(ffi.string(argv[2]), '(echo ^&^|^<^>^(^)^@^^)')
+      eq('/bin/sh', ffi.string(argv[0]))
+      eq('-c', ffi.string(argv[1]))
+      eq('(echo ^&^|^<^>^(^)^@^^)', ffi.string(argv[2]))
       eq(nil, argv[3])
     end)
 
@@ -136,9 +136,9 @@ describe('shell functions', function()
       cimported.p_sxe = to_cstr('"&|<>()@^')
 
       local argv = ffi.cast('char**', cimported.shell_build_argv(to_cstr('echo -n some text'), nil))
-      eq(ffi.string(argv[0]), '/bin/sh')
-      eq(ffi.string(argv[1]), '-c')
-      eq(ffi.string(argv[2]), '"(echo -n some text)"')
+      eq('/bin/sh', ffi.string(argv[0]))
+      eq('-c', ffi.string(argv[1]))
+      eq('"(echo -n some text)"', ffi.string(argv[2]))
       eq(nil, argv[3])
     end)
 
@@ -147,17 +147,17 @@ describe('shell functions', function()
       cimported.p_sxe = to_cstr('')
 
       local argv = ffi.cast('char**', cimported.shell_build_argv(to_cstr('echo -n some text'), nil))
-      eq(ffi.string(argv[0]), '/bin/sh')
-      eq(ffi.string(argv[1]), '-c')
-      eq(ffi.string(argv[2]), '"echo -n some text"')
+      eq('/bin/sh', ffi.string(argv[0]))
+      eq('-c', ffi.string(argv[1]))
+      eq('"echo -n some text"', ffi.string(argv[2]))
       eq(nil, argv[3])
     end)
 
     itp('with empty shellxquote/shellxescape', function()
       local argv = ffi.cast('char**', cimported.shell_build_argv(to_cstr('echo -n some text'), nil))
-      eq(ffi.string(argv[0]), '/bin/sh')
-      eq(ffi.string(argv[1]), '-c')
-      eq(ffi.string(argv[2]), 'echo -n some text')
+      eq('/bin/sh', ffi.string(argv[0]))
+      eq('-c', ffi.string(argv[1]))
+      eq('echo -n some text', ffi.string(argv[2]))
       eq(nil, argv[3])
     end)
   end)

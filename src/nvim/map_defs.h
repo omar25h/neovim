@@ -33,7 +33,8 @@ static inline bool equal_String(String a, String b)
   if (a.size != b.size) {
     return false;
   }
-  return memcmp(a.data, b.data, a.size) == 0;
+
+  return (a.size == 0) || (memcmp(a.data, b.data, a.size) == 0);
 }
 
 #define Set(type) Set_##type
@@ -48,7 +49,6 @@ static const uint64_t value_init_uint64_t = 0;
 static const int64_t value_init_int64_t = 0;
 static const String value_init_String = STRING_INIT;
 static const ColorItem value_init_ColorItem = COLOR_ITEM_INITIALIZER;
-static const SignRange value_init_SignRange = SIGNRANGE_INIT;
 
 // layer 0: type non-specific code
 
@@ -151,7 +151,6 @@ KEY_DECLS(uint32_t)
 KEY_DECLS(String)
 KEY_DECLS(HlEntry)
 KEY_DECLS(ColorKey)
-KEY_DECLS(SignRange)
 
 MAP_DECLS(int, int)
 MAP_DECLS(int, ptr_t)
@@ -168,7 +167,6 @@ MAP_DECLS(uint32_t, uint32_t)
 MAP_DECLS(String, int)
 MAP_DECLS(int, String)
 MAP_DECLS(ColorKey, ColorItem)
-MAP_DECLS(int, SignRange)
 
 #define set_has(T, set, key) set_has_##T(set, key)
 #define set_put(T, set, key) set_put_##T(set, key, NULL)

@@ -2,9 +2,11 @@
 
 #include <stdbool.h>
 
-#include "nvim/func_attr.h"
-#include "nvim/macros_defs.h"
 #include "nvim/os/os_defs.h"
+
+#ifdef INCLUDE_GENERATED_DECLARATIONS
+# include "ascii_defs.h.inline.generated.h"
+#endif
 
 // Definitions of various common control characters.
 
@@ -83,42 +85,11 @@
 # define PATHSEPSTR     "/"
 #endif
 
-static inline bool ascii_iswhite(int c)
-  REAL_FATTR_CONST
-  REAL_FATTR_ALWAYS_INLINE;
-
-static inline bool ascii_iswhite_or_nul(int c)
-  REAL_FATTR_CONST
-  REAL_FATTR_ALWAYS_INLINE;
-
-static inline bool ascii_isdigit(int c)
-  REAL_FATTR_CONST
-  REAL_FATTR_ALWAYS_INLINE;
-
-static inline bool ascii_isxdigit(int c)
-  REAL_FATTR_CONST
-  REAL_FATTR_ALWAYS_INLINE;
-
-static inline bool ascii_isident(int c)
-  REAL_FATTR_CONST
-  REAL_FATTR_ALWAYS_INLINE;
-
-static inline bool ascii_isbdigit(int c)
-  REAL_FATTR_CONST
-  REAL_FATTR_ALWAYS_INLINE;
-
-static inline bool ascii_isodigit(int c)
-  REAL_FATTR_CONST
-  REAL_FATTR_ALWAYS_INLINE;
-
-static inline bool ascii_isspace(int c)
-  REAL_FATTR_CONST
-  REAL_FATTR_ALWAYS_INLINE;
-
 /// Checks if `c` is a space or tab character.
 ///
 /// @see {ascii_isdigit}
 static inline bool ascii_iswhite(int c)
+  FUNC_ATTR_CONST FUNC_ATTR_ALWAYS_INLINE
 {
   return c == ' ' || c == '\t';
 }
@@ -127,6 +98,7 @@ static inline bool ascii_iswhite(int c)
 ///
 /// @see {ascii_isdigit}
 static inline bool ascii_iswhite_or_nul(int c)
+  FUNC_ATTR_CONST FUNC_ATTR_ALWAYS_INLINE
 {
   return ascii_iswhite(c) || c == NUL;
 }
@@ -141,6 +113,7 @@ static inline bool ascii_iswhite_or_nul(int c)
 /// what may be used for some optimizations (e.g. simple `return
 /// isdigit_table[c];`).
 static inline bool ascii_isdigit(int c)
+  FUNC_ATTR_CONST FUNC_ATTR_ALWAYS_INLINE
 {
   return c >= '0' && c <= '9';
 }
@@ -149,6 +122,7 @@ static inline bool ascii_isdigit(int c)
 ///
 /// @see {ascii_isdigit}
 static inline bool ascii_isxdigit(int c)
+  FUNC_ATTR_CONST FUNC_ATTR_ALWAYS_INLINE
 {
   return (c >= '0' && c <= '9')
          || (c >= 'a' && c <= 'f')
@@ -159,6 +133,7 @@ static inline bool ascii_isxdigit(int c)
 ///
 /// That is, whether it is alphanumeric character or underscore.
 static inline bool ascii_isident(int c)
+  FUNC_ATTR_CONST FUNC_ATTR_ALWAYS_INLINE
 {
   return ASCII_ISALNUM(c) || c == '_';
 }
@@ -167,6 +142,7 @@ static inline bool ascii_isident(int c)
 ///
 /// @see {ascii_isdigit}
 static inline bool ascii_isbdigit(int c)
+  FUNC_ATTR_CONST FUNC_ATTR_ALWAYS_INLINE
 {
   return (c == '0' || c == '1');
 }
@@ -175,6 +151,7 @@ static inline bool ascii_isbdigit(int c)
 ///
 /// @see {ascii_isdigit}
 static inline bool ascii_isodigit(int c)
+  FUNC_ATTR_CONST FUNC_ATTR_ALWAYS_INLINE
 {
   return (c >= '0' && c <= '7');
 }
@@ -184,6 +161,7 @@ static inline bool ascii_isodigit(int c)
 ///
 /// @see {ascii_isdigit}
 static inline bool ascii_isspace(int c)
+  FUNC_ATTR_CONST FUNC_ATTR_ALWAYS_INLINE
 {
   return (c >= 9 && c <= 13) || c == ' ';
 }

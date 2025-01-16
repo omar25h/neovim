@@ -1,23 +1,39 @@
 --- @meta
+error('Cannot require a meta file')
 
--- These types were taken from https://github.com/LuaCATS/lpeg, with types being renamed to include
--- the vim namespace and with some descriptions made less verbose.
+-- These types were taken from https://github.com/LuaCATS/lpeg
+-- (based on revision 33f4ff5343a64cf613a0634d70092fbc2b64291b)
+-- with types being renamed to include the vim namespace and with some descriptions made less verbose.
 
---- *LPeg* is a new pattern-matching library for Lua, based on [Parsing Expression Grammars](https://bford.info/packrat/) (PEGs).
+--- @brief <pre>help
+--- LPeg is a pattern-matching library for Lua, based on Parsing Expression
+--- Grammars (PEGs). https://bford.info/packrat/
+---
+---                                                  *lua-lpeg* *vim.lpeg.Pattern*
+--- The LPeg library for parsing expression grammars is included as `vim.lpeg`
+--- (https://www.inf.puc-rio.br/~roberto/lpeg/).
+---
+--- In addition, its regex-like interface is available as |vim.re|
+--- (https://www.inf.puc-rio.br/~roberto/lpeg/re.html).
+---
+--- </pre>
+
 vim.lpeg = {}
 
+--- @nodoc
 --- @class vim.lpeg.Pattern
+--- @operator len: vim.lpeg.Pattern
 --- @operator unm: vim.lpeg.Pattern
 --- @operator add(vim.lpeg.Pattern): vim.lpeg.Pattern
 --- @operator sub(vim.lpeg.Pattern): vim.lpeg.Pattern
 --- @operator mul(vim.lpeg.Pattern): vim.lpeg.Pattern
 --- @operator mul(vim.lpeg.Capture): vim.lpeg.Pattern
 --- @operator div(string): vim.lpeg.Capture
---- @operator div(number): vim.lpeg.Capture
+--- @operator div(integer): vim.lpeg.Capture
 --- @operator div(table): vim.lpeg.Capture
 --- @operator div(function): vim.lpeg.Capture
---- @operator pow(number): vim.lpeg.Pattern
---- @operator mod(function): nil
+--- @operator pow(integer): vim.lpeg.Pattern
+--- @operator mod(function): vim.lpeg.Capture
 local Pattern = {}
 
 --- @alias vim.lpeg.Capture vim.lpeg.Pattern
@@ -32,18 +48,20 @@ local Pattern = {}
 --- matches anywhere.
 ---
 --- Example:
+---
 --- ```lua
---- local pattern = lpeg.R("az") ^ 1 * -1
---- assert(pattern:match("hello") == 6)
---- assert(lpeg.match(pattern, "hello") == 6)
---- assert(pattern:match("1 hello") == nil)
+--- local pattern = lpeg.R('az') ^ 1 * -1
+--- assert(pattern:match('hello') == 6)
+--- assert(lpeg.match(pattern, 'hello') == 6)
+--- assert(pattern:match('1 hello') == nil)
 --- ```
 ---
---- @param pattern vim.lpeg.Pattern
+--- @param pattern vim.lpeg.Pattern|string|integer|boolean|table|function
 --- @param subject string
 --- @param init? integer
---- @return integer|vim.lpeg.Capture|nil
-function vim.lpeg.match(pattern, subject, init) end
+--- @param ... any
+--- @return any ...
+function vim.lpeg.match(pattern, subject, init, ...) end
 
 --- Matches the given `pattern` against the `subject` string. If the match succeeds, returns the
 --- index in the subject of the first character after the match, or the captured values (if the
@@ -55,21 +73,24 @@ function vim.lpeg.match(pattern, subject, init) end
 --- we must either write a loop in Lua or write a pattern that matches anywhere.
 ---
 --- Example:
+---
 --- ```lua
---- local pattern = lpeg.R("az") ^ 1 * -1
---- assert(pattern:match("hello") == 6)
---- assert(lpeg.match(pattern, "hello") == 6)
---- assert(pattern:match("1 hello") == nil)
+--- local pattern = lpeg.R('az') ^ 1 * -1
+--- assert(pattern:match('hello') == 6)
+--- assert(lpeg.match(pattern, 'hello') == 6)
+--- assert(pattern:match('1 hello') == nil)
 --- ```
 ---
 --- @param subject string
 --- @param init? integer
---- @return integer|vim.lpeg.Capture|nil
-function Pattern:match(subject, init) end
+--- @param ... any
+--- @return any ...
+function Pattern:match(subject, init, ...) end
 
 --- Returns the string `"pattern"` if the given value is a pattern, otherwise `nil`.
 ---
---- @return 'pattern'|nil
+--- @param value vim.lpeg.Pattern|string|integer|boolean|table|function
+--- @return "pattern"|nil
 function vim.lpeg.type(value) end
 
 --- Returns a string with the running version of LPeg.
@@ -85,7 +106,7 @@ function vim.lpeg.version() end
 --- @param max integer
 function vim.lpeg.setmaxstack(max) end
 
---- Converts the given value into a proper pattern. This following rules are applied:
+--- Converts the given value into a proper pattern. The following rules are applied:
 --- * If the argument is a pattern, it is returned unmodified.
 --- * If the argument is a string, it is translated to a pattern that matches the string literally.
 --- * If the argument is a non-negative number `n`, the result is a pattern that matches exactly `n` characters.
@@ -95,7 +116,7 @@ function vim.lpeg.setmaxstack(max) end
 --- * If the argument is a boolean, the result is a pattern that always succeeds or always fails
 --- (according to the boolean value), without consuming any input.
 --- * If the argument is a table, it is interpreted as a grammar (see Grammars).
---- * If the argument is a function, returns a pattern equivalent to a match-time captureover the empty string.
+--- * If the argument is a function, returns a pattern equivalent to a match-time capture over the empty string.
 ---
 --- @param value vim.lpeg.Pattern|string|integer|boolean|table|function
 --- @return vim.lpeg.Pattern
@@ -103,21 +124,22 @@ function vim.lpeg.P(value) end
 
 --- Returns a pattern that matches only if the input string at the current position is preceded by `patt`.
 --- Pattern `patt` must match only strings with some fixed length, and it cannot contain captures.
---- Like the and predicate, this pattern never consumes any input, independently of success or failure.
+--- Like the `and` predicate, this pattern never consumes any input, independently of success or failure.
 ---
---- @param pattern vim.lpeg.Pattern
+--- @param pattern vim.lpeg.Pattern|string|integer|boolean|table
 --- @return vim.lpeg.Pattern
 function vim.lpeg.B(pattern) end
 
 --- Returns a pattern that matches any single character belonging to one of the given ranges.
 --- Each `range` is a string `xy` of length 2, representing all characters with code between the codes of
---- `x` and `y` (both inclusive). As an example, the pattern `lpeg.R("09")` matches any digit, and
---- `lpeg.R("az", "AZ")` matches any ASCII letter.
+--- `x` and `y` (both inclusive). As an example, the pattern `lpeg.R('09')` matches any digit, and
+--- `lpeg.R('az', 'AZ')` matches any ASCII letter.
 ---
 --- Example:
+---
 --- ```lua
---- local pattern = lpeg.R("az") ^ 1 * -1
---- assert(pattern:match("hello") == 6)
+--- local pattern = lpeg.R('az') ^ 1 * -1
+--- assert(pattern:match('hello') == 6)
 --- ```
 ---
 --- @param ... string
@@ -125,9 +147,9 @@ function vim.lpeg.B(pattern) end
 function vim.lpeg.R(...) end
 
 --- Returns a pattern that matches any single character that appears in the given string (the `S` stands for Set).
---- As an example, the pattern `lpeg.S("+-*/")` matches any arithmetic operator. Note that, if `s` is a character
+--- As an example, the pattern `lpeg.S('+-*/')` matches any arithmetic operator. Note that, if `s` is a character
 --- (that is, a string of length 1), then `lpeg.P(s)` is equivalent to `lpeg.S(s)` which is equivalent to
---- `lpeg.R(s..s)`. Note also that both `lpeg.S("")` and `lpeg.R()` are patterns that always fail.
+--- `lpeg.R(s..s)`. Note also that both `lpeg.S('')` and `lpeg.R()` are patterns that always fail.
 ---
 --- @param string string
 --- @return vim.lpeg.Pattern
@@ -137,16 +159,18 @@ function vim.lpeg.S(string) end
 --- for a grammar. The created non-terminal refers to the rule indexed by `v` in the enclosing grammar.
 ---
 --- Example:
+---
 --- ```lua
---- local b = lpeg.P({"(" * ((1 - lpeg.S "()") + lpeg.V(1)) ^ 0 * ")"})
+--- local b = lpeg.P({'(' * ((1 - lpeg.S '()') + lpeg.V(1)) ^ 0 * ')'})
 --- assert(b:match('((string))') == 11)
 --- assert(b:match('(') == nil)
 --- ```
 ---
---- @param v string|integer
+--- @param v boolean|string|number|function|table|thread|userdata|lightuserdata 
 --- @return vim.lpeg.Pattern
 function vim.lpeg.V(v) end
 
+--- @nodoc
 --- @class vim.lpeg.Locale
 --- @field alnum userdata
 --- @field alpha userdata
@@ -168,14 +192,15 @@ function vim.lpeg.V(v) end
 --- that table.
 ---
 --- Example:
+---
 --- ```lua
 --- lpeg.locale(lpeg)
---- local space = lpeg.space^0
---- local name = lpeg.C(lpeg.alpha^1) * space
---- local sep = lpeg.S(",;") * space
---- local pair = lpeg.Cg(name * "=" * space * name) * sep^-1
---- local list = lpeg.Cf(lpeg.Ct("") * pair^0, rawset)
---- local t = list:match("a=b, c = hi; next = pi")
+--- local space = lpeg.space ^ 0
+--- local name = lpeg.C(lpeg.alpha ^ 1) * space
+--- local sep = lpeg.S(',;') * space
+--- local pair = lpeg.Cg(name * '=' * space * name) * sep ^ -1
+--- local list = lpeg.Cf(lpeg.Ct('') * pair ^ 0, rawset)
+--- local t = list:match('a=b, c = hi; next = pi')
 --- assert(t.a == 'b')
 --- assert(t.c == 'hi')
 --- assert(t.next == 'pi')
@@ -191,11 +216,12 @@ function vim.lpeg.locale(tab) end
 --- The captured value is a string. If `patt` has other captures, their values are returned after this one.
 ---
 --- Example:
+---
 --- ```lua
 --- local function split (s, sep)
 ---   sep = lpeg.P(sep)
----   local elem = lpeg.C((1 - sep)^0)
----   local p = elem * (sep * elem)^0
+---   local elem = lpeg.C((1 - sep) ^ 0)
+---   local p = elem * (sep * elem) ^ 0
 ---   return lpeg.match(p, s)
 --- end
 --- local a, b, c = split('a,b,c', ',')
@@ -204,7 +230,7 @@ function vim.lpeg.locale(tab) end
 --- assert(c == 'c')
 --- ```
 ---
---- @param patt vim.lpeg.Pattern
+--- @param patt vim.lpeg.Pattern|string|integer|boolean|table|function
 --- @return vim.lpeg.Capture
 function vim.lpeg.C(patt) end
 
@@ -235,21 +261,22 @@ function vim.lpeg.Cc(...) end
 --- `func(...func(func(C1, C2), C3)...,Cn)`, that is, it will fold (or accumulate, or reduce) the captures from
 --- `patt` using function `func`. This capture assumes that `patt` should produce at least one capture with at
 --- least one value (of any type), which becomes the initial value of an accumulator. (If you need a specific
---- initial value, you may prefix a constant captureto `patt`.) For each subsequent capture, LPeg calls `func`
+--- initial value, you may prefix a constant capture to `patt`.) For each subsequent capture, LPeg calls `func`
 --- with this accumulator as the first argument and all values produced by the capture as extra arguments;
 --- the first result from this call becomes the new value for the accumulator. The final value of the accumulator
 --- becomes the captured value.
 ---
 --- Example:
+---
 --- ```lua
---- local number = lpeg.R("09") ^ 1 / tonumber
---- local list = number * ("," * number) ^ 0
+--- local number = lpeg.R('09') ^ 1 / tonumber
+--- local list = number * (',' * number) ^ 0
 --- local function add(acc, newvalue) return acc + newvalue end
 --- local sum = lpeg.Cf(list, add)
---- assert(sum:match("10,30,43") == 83)
+--- assert(sum:match('10,30,43') == 83)
 --- ```
 ---
---- @param patt vim.lpeg.Pattern
+--- @param patt vim.lpeg.Pattern|string|integer|boolean|table|function
 --- @param func fun(acc, newvalue)
 --- @return vim.lpeg.Capture
 function vim.lpeg.Cf(patt, func) end
@@ -258,7 +285,7 @@ function vim.lpeg.Cf(patt, func) end
 --- The group may be anonymous (if no name is given) or named with the given name (which
 --- can be any non-nil Lua value).
 ---
---- @param patt vim.lpeg.Pattern
+--- @param patt vim.lpeg.Pattern|string|integer|boolean|table|function
 --- @param name? string
 --- @return vim.lpeg.Capture
 function vim.lpeg.Cg(patt, name) end
@@ -267,10 +294,11 @@ function vim.lpeg.Cg(patt, name) end
 --- subject where the match occurs. The captured value is a number.
 ---
 --- Example:
+---
 --- ```lua
 --- local I = lpeg.Cp()
 --- local function anywhere(p) return lpeg.P({I * p * I + 1 * lpeg.V(1)}) end
---- local match_start, match_end = anywhere("world"):match("hello world!")
+--- local match_start, match_end = anywhere('world'):match('hello world!')
 --- assert(match_start == 7)
 --- assert(match_end == 12)
 --- ```
@@ -285,16 +313,17 @@ function vim.lpeg.Cp() end
 --- value is the string resulting from all replacements.
 ---
 --- Example:
+---
 --- ```lua
 --- local function gsub (s, patt, repl)
 ---   patt = lpeg.P(patt)
----   patt = lpeg.Cs((patt / repl + 1)^0)
+---   patt = lpeg.Cs((patt / repl + 1) ^ 0)
 ---   return lpeg.match(patt, s)
 --- end
 --- assert(gsub('Hello, xxx!', 'xxx', 'World') == 'Hello, World!')
 --- ```
 ---
---- @param patt vim.lpeg.Pattern
+--- @param patt vim.lpeg.Pattern|string|integer|boolean|table|function
 --- @return vim.lpeg.Capture
 function vim.lpeg.Cs(patt) end
 
@@ -303,7 +332,7 @@ function vim.lpeg.Cs(patt) end
 --- Moreover, for each named capture group created by `patt`, the first value of the group is put into
 --- the table with the group name as its key. The captured value is only the table.
 ---
---- @param patt vim.lpeg.Pattern|''
+--- @param patt vim.lpeg.Pattern|string|integer|boolean|table|function
 --- @return vim.lpeg.Capture
 function vim.lpeg.Ct(patt) end
 
@@ -312,12 +341,12 @@ function vim.lpeg.Ct(patt) end
 --- and then calls `function`. The given function gets as arguments the entire subject, the current position
 --- (after the match of `patt`), plus any capture values produced by `patt`. The first value returned by `function`
 --- defines how the match happens. If the call returns a number, the match succeeds and the returned number
---- becomes the new current position. (Assuming a subject sand current position i, the returned number must be
---- in the range [i, len(s) + 1].) If the call returns true, the match succeeds without consuming any input
---- (so, to return true is equivalent to return i). If the call returns false, nil, or no value, the match fails.
+--- becomes the new current position. (Assuming a subject sand current position `i`, the returned number must be
+--- in the range `[i, len(s) + 1]`.) If the call returns `true`, the match succeeds without consuming any input
+--- (so, to return true is equivalent to return `i`). If the call returns `false`, `nil`, or no value, the match fails.
 --- Any extra values returned by the function become the values produced by the capture.
 ---
---- @param patt vim.lpeg.Pattern
---- @param fn function
+--- @param patt vim.lpeg.Pattern|string|integer|boolean|table|function
+--- @param fn fun(s: string, i: integer, ...: any): (position: boolean|integer, ...: any)
 --- @return vim.lpeg.Capture
 function vim.lpeg.Cmt(patt, fn) end

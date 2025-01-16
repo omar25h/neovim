@@ -152,8 +152,10 @@ _ERROR_CATEGORIES = [
     'build/endif_comment',
     'build/header_guard',
     'build/include_defs',
+    'build/defs_header',
     'build/printf_format',
     'build/storage_class',
+    'build/init_macro',
     'readability/bool',
     'readability/multiline_comment',
     'readability/multiline_string',
@@ -749,53 +751,6 @@ BRACES = {
 }
 
 
-CLOSING_BRACES = {v: k for k, v in BRACES.items()}
-
-
-def GetExprBracesPosition(clean_lines, linenum, pos):
-    """List positions of all kinds of braces
-
-    If input points to ( or { or [ then function proceeds until finding the
-    position which closes it.
-
-    Args:
-      clean_lines: A CleansedLines instance containing the file.
-      linenum: Current line number.
-      pos: A position on the line.
-
-    Yields:
-      A tuple (linenum, pos, brace, depth) that points to each brace.
-      Additionally each new line (linenum, pos, 's', depth) is yielded, for each
-      line end (linenum, pos, 'e', depth) is yielded and at the very end it
-      yields (linenum, pos, None, None).
-    """
-    depth = 0
-    yielded_line_start = True
-    startpos = pos
-    while linenum < clean_lines.NumLines() - 1:
-        line = clean_lines.elided_with_space_strings[linenum]
-        if not line.startswith('#') or yielded_line_start:
-            # Ignore #ifdefs, but not if it is macros that are checked
-            for i, brace in enumerate(line[startpos:]):
-                pos = i + startpos
-                if brace != ' ' and not yielded_line_start:
-                    yield (linenum, pos, 's', depth)
-                    yielded_line_start = True
-                if brace in BRACES:
-                    depth += 1
-                    yield (linenum, pos, brace, depth)
-                elif brace in CLOSING_BRACES:
-                    yield (linenum, pos, brace, depth)
-                    depth -= 1
-                if depth == 0:
-                    yield (linenum, pos, None, None)
-                    return
-            yield (linenum, len(line) - 1, 'e', depth)
-        yielded_line_start = False
-        startpos = 0
-        linenum += 1
-
-
 def FindEndOfExpressionInLine(line, startpos, depth, startchar, endchar):
     """Find the position just after the matching endchar.
 
@@ -893,66 +848,40 @@ def CheckIncludes(filename, lines, error):
             or filename.endswith('.in.h')
             or FileInfo(filename).RelativePath() in {
         'func_attr.h',
-        'os/pty_process.h',
+        'os/pty_proc.h',
     }):
         return
 
-    # These should be synced with the ignored headers in the `iwyu` target in
-    # the Makefile.
     check_includes_ignore = [
-            "src/nvim/api/private/helpers.h",
             "src/nvim/api/private/validate.h",
             "src/nvim/assert_defs.h",
-            "src/nvim/buffer.h",
-            "src/nvim/buffer_defs.h",
             "src/nvim/channel.h",
             "src/nvim/charset.h",
-            "src/nvim/drawline.h",
-            "src/nvim/eval.h",
-            "src/nvim/eval/encode.h",
             "src/nvim/eval/typval.h",
-            "src/nvim/eval/typval_defs.h",
-            "src/nvim/eval/userfunc.h",
-            "src/nvim/eval/window.h",
-            "src/nvim/event/libuv_process.h",
-            "src/nvim/event/loop.h",
             "src/nvim/event/multiqueue.h",
-            "src/nvim/event/process.h",
-            "src/nvim/event/rstream.h",
-            "src/nvim/event/signal.h",
-            "src/nvim/event/socket.h",
-            "src/nvim/event/stream.h",
-            "src/nvim/event/time.h",
-            "src/nvim/event/wstream.h",
             "src/nvim/garray.h",
             "src/nvim/globals.h",
-            "src/nvim/grid.h",
             "src/nvim/highlight.h",
-            "src/nvim/input.h",
-            "src/nvim/keycodes.h",
             "src/nvim/lua/executor.h",
             "src/nvim/main.h",
             "src/nvim/mark.h",
-            "src/nvim/msgpack_rpc/channel.h",
             "src/nvim/msgpack_rpc/channel_defs.h",
-            "src/nvim/msgpack_rpc/helpers.h",
             "src/nvim/msgpack_rpc/unpacker.h",
             "src/nvim/option.h",
-            "src/nvim/os/input.h",
             "src/nvim/os/pty_conpty_win.h",
-            "src/nvim/os/pty_process_unix.h",
-            "src/nvim/os/pty_process_win.h",
-            "src/nvim/tui/input.h",
-            "src/nvim/ui.h",
-            "src/nvim/viml/parser/expressions.h",
-            "src/nvim/viml/parser/parser.h",
+            "src/nvim/os/pty_proc_win.h",
                              ]
 
     skip_headers = [
-            "klib/kvec.h",
-            "klib/klist.h",
             "auto/config.h",
-            "nvim/func_attr.h"
+            "klib/klist.h",
+            "klib/kvec.h",
+            "mpack/mpack_core.h",
+            "mpack/object.h",
+            "nvim/func_attr.h",
+            "termkey/termkey.h",
+            "vterm/vterm.h",
+            "xdiff/xdiff.h",
             ]
 
     for i in check_includes_ignore:
@@ -968,6 +897,7 @@ def CheckIncludes(filename, lines, error):
             if (not name.endswith('.h.generated.h') and
                     not name.endswith('/defs.h') and
                     not name.endswith('_defs.h') and
+                    not name.endswith('.h.inline.generated.h') and
                     not name.endswith('_defs.generated.h') and
                     not name.endswith('_enum.generated.h')):
                 error(filename, i, 'build/include_defs', 5,
@@ -1687,8 +1617,7 @@ def CheckSpacing(filename, clean_lines, linenum, error):
                   line[commentpos - 1] not in string.whitespace) or
                  (commentpos >= 2 and
                   line[commentpos - 2] not in string.whitespace))):
-                error(filename, linenum, 'whitespace/comments', 2,
-                      'At least two spaces is best between code and comments')
+                return
             # There should always be a space between the // and the comment
             commentend = commentpos + 2
             if commentend < len(line) and not line[commentend] == ' ':
@@ -1763,7 +1692,7 @@ def CheckSpacing(filename, clean_lines, linenum, error):
 
         # Look for < that is not surrounded by spaces.  This is only
         # triggered if both sides are missing spaces, even though
-        # technically should should flag if at least one side is missing a
+        # technically should flag if at least one side is missing a
         # space.  This is done to avoid some false positives with shifts.
         match = Search(r'[^\s<]<([^\s=<].*)', reduced_line)
         if (match and not FindNextMatchingAngleBracket(clean_lines, linenum,
@@ -1799,8 +1728,7 @@ def CheckSpacing(filename, clean_lines, linenum, error):
     # There shouldn't be space around unary operators
     match = Search(r'(!\s|~\s|[\s]--[\s;]|[\s]\+\+[\s;])', line)
     if match:
-        error(filename, linenum, 'whitespace/operators', 4,
-              'Extra space for operator %s' % match.group(1))
+        return
 
     # For if/for/while/switch, the left and right parens should be
     # consistent about how many spaces are inside the parens, and
@@ -1854,7 +1782,7 @@ def CheckSpacing(filename, clean_lines, linenum, error):
                    r'(?<!\bPMap)'
                    r'(?<!\bSet)'
                    r'(?<!\bArrayOf)'
-                   r'(?<!\bDictionaryOf)'
+                   r'(?<!\bDictOf)'
                    r'(?<!\bDict)'
                    r'\((?:const )?(?:struct )?[a-zA-Z_]\w*(?: *\*(?:const)?)*\)'
                    r' +'
@@ -2064,13 +1992,13 @@ def CheckLanguage(filename, clean_lines, linenum, error):
     match = Search(r'\b(strncpy|STRNCPY)\b', line)
     if match:
         error(filename, linenum, 'runtime/printf', 4,
-              'Use xstrlcpy or snprintf instead of %s (unless this is from Vim)'
+              'Use xstrlcpy, xmemcpyz or snprintf instead of %s (unless this is from Vim)'
               % match.group(1))
     match = Search(r'\b(strcpy)\b', line)
     if match:
         error(filename, linenum, 'runtime/printf', 4,
-              'Use xstrlcpy or snprintf instead of %s' % match.group(1))
-    match = Search(r'\b(STRNCAT|strncat|strcat|vim_strcat)\b', line)
+              'Use xstrlcpy, xmemcpyz or snprintf instead of %s' % match.group(1))
+    match = Search(r'\b(STRNCAT|strncat|vim_strcat)\b', line)
     if match:
         error(filename, linenum, 'runtime/printf', 4,
               'Use xstrlcat or snprintf instead of %s' % match.group(1))
@@ -2082,7 +2010,7 @@ def CheckLanguage(filename, clean_lines, linenum, error):
         if match:
             error(filename, linenum, 'runtime/deprecated', 4,
                   'Accessing list_T internals directly is prohibited; '
-                  'see https://github.com/neovim/neovim/wiki/List-management-in-Neovim')
+                  'see https://neovim.io/doc/user/dev_vimpatch.html#dev-vimpatch-list-management')
 
     # Check for suspicious usage of "if" like
     # } if (a == b) {
@@ -2162,6 +2090,11 @@ def CheckLanguage(filename, clean_lines, linenum, error):
                   "Do not use variable-length arrays.  Use an appropriately"
                   " named ('k' followed by CamelCase) compile-time constant for"
                   " the size.")
+
+    # INIT() macro should only be used in header files.
+    if not filename.endswith('.h') and Search(r' INIT\(', line):
+        error(filename, linenum, 'build/init_macro', 4,
+              'INIT() macro should only be used in header files.')
 
     # Detect TRUE and FALSE.
     match = Search(r'\b(TRUE|FALSE)\b', line)
@@ -2273,18 +2206,18 @@ def ProcessFileData(filename, file_extension, lines, error,
 
         error = RecordedError
 
-    if file_extension == 'h':
-        CheckForHeaderGuard(filename, lines, error)
-        CheckIncludes(filename, lines, error)
-        if filename.endswith('/defs.h') or filename.endswith('_defs.h'):
-            CheckNonSymbols(filename, lines, error)
-
     RemoveMultiLineComments(filename, lines, error)
     clean_lines = CleansedLines(lines, init_lines)
     for line in range(clean_lines.NumLines()):
         ProcessLine(filename, clean_lines, line,
                     nesting_state, error,
                     extra_check_functions)
+
+    if file_extension == 'h':
+        CheckForHeaderGuard(filename, lines, error)
+        CheckIncludes(filename, lines, error)
+        if filename.endswith('/defs.h') or filename.endswith('_defs.h'):
+            CheckNonSymbols(filename, lines, error)
 
     # We check here rather than inside ProcessLine so that we see raw
     # lines rather than "cleaned" lines.

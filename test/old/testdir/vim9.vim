@@ -2,6 +2,10 @@
 " Use a different file name for each run.
 let s:sequence = 1
 
+func CheckDefSuccess(lines)
+  return
+endfunc
+
 func CheckDefFailure(lines, error, lnum = -3)
   return
 endfunc
@@ -138,3 +142,96 @@ func CheckLegacyAndVim9Failure(lines, error)
                               \ })
   call CheckLegacyFailure(legacylines, legacyError)
 endfunc
+
+" :source a list of "lines" and check whether it fails with "error"
+func CheckSourceScriptFailure(lines, error, lnum = -3)
+  if get(a:lines, 0, '') ==# 'vim9script'
+    return
+  endif
+  let cwd = getcwd()
+  new
+  call setline(1, a:lines)
+  let bnr = bufnr()
+  try
+    call assert_fails('source', a:error, a:lines, a:lnum)
+  finally
+    call chdir(cwd)
+    exe $':bw! {bnr}'
+  endtry
+endfunc
+
+" :source a list of "lines" and check whether it fails with the list of
+" "errors"
+func CheckSourceScriptFailureList(lines, errors, lnum = -3)
+  if get(a:lines, 0, '') ==# 'vim9script'
+    return
+  endif
+  let cwd = getcwd()
+  new
+  let bnr = bufnr()
+  call setline(1, a:lines)
+  try
+    call assert_fails('source', a:errors, a:lines, a:lnum)
+  finally
+    call chdir(cwd)
+    exe $':bw! {bnr}'
+  endtry
+endfunc
+
+" :source a list of "lines" and check whether it succeeds
+func CheckSourceScriptSuccess(lines)
+  if get(a:lines, 0, '') ==# 'vim9script'
+    return
+  endif
+  let cwd = getcwd()
+  new
+  let bnr = bufnr()
+  call setline(1, a:lines)
+  try
+    :source
+  finally
+    call chdir(cwd)
+    exe $':bw! {bnr}'
+  endtry
+endfunc
+
+func CheckSourceSuccess(lines)
+  call CheckSourceScriptSuccess(a:lines)
+endfunc
+
+func CheckSourceFailure(lines, error, lnum = -3)
+  call CheckSourceScriptFailure(a:lines, a:error, a:lnum)
+endfunc
+
+func CheckSourceFailureList(lines, errors, lnum = -3)
+  call CheckSourceScriptFailureList(a:lines, a:errors, a:lnum)
+endfunc
+
+func CheckSourceDefSuccess(lines)
+  return
+endfunc
+
+func CheckSourceDefAndScriptSuccess(lines)
+  return
+endfunc
+
+func CheckSourceDefCompileSuccess(lines)
+  return
+endfunc
+
+func CheckSourceDefFailure(lines, error, lnum = -3)
+  return
+endfunc
+
+func CheckSourceDefExecFailure(lines, error, lnum = -3)
+  return
+endfunc
+
+func CheckSourceDefAndScriptFailure(lines, error, lnum = -3)
+  return
+endfunc
+
+func CheckSourceDefExecAndScriptFailure(lines, error, lnum = -3)
+  return
+endfunc
+

@@ -3,7 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "nvim/api/private/defs.h"
+#include "nvim/api/private/defs.h"  // IWYU pragma: keep
 #include "nvim/memory_defs.h"
 #include "nvim/types_defs.h"
 
@@ -18,14 +18,14 @@ struct MsgpackRpcRequestHandler {
               ///< uv loop (the loop is run very frequently due to breakcheck).
               ///< If "fast" is false, the function is deferred, i e the call will
               ///< be put in the event queue, for safe handling later.
-  bool arena_return;  ///< return value is allocated in the arena (or statically)
-                      ///< and should not be freed as such.
+  bool ret_alloc;  ///< return value is allocated and should be freed using api_free_object
+                   ///< otherwise it uses arena and/or static memory
 };
 
 extern const MsgpackRpcRequestHandler method_handlers[];
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "api/private/dispatch.h.generated.h"
-# include "api/private/dispatch_wrappers.h.generated.h"  // IWYU pragma: export
+# include "api/private/dispatch_wrappers.h.generated.h"
 # include "keysets_defs.generated.h"
 #endif

@@ -353,15 +353,11 @@ BufWritePost			After writing the whole buffer to a file
 ChanInfo			State of channel changed, for instance the
 				client of a RPC channel described itself.
 				Sets these |v:event| keys:
-				    info
-				See |nvim_get_chan_info()| for the format of
-				the info Dictionary.
+				    info	as from |nvim_get_chan_info()|
 							*ChanOpen*
 ChanOpen			Just after a channel was opened.
 				Sets these |v:event| keys:
-				    info
-				See |nvim_get_chan_info()| for the format of
-				the info Dictionary.
+				    info	as from |nvim_get_chan_info()|
 							*CmdUndefined*
 CmdUndefined			When a user command is used but it isn't
 				defined.  Useful for defining a command only
@@ -466,6 +462,20 @@ CompleteDone			After Insert mode completion is done.  Either
 				CompleteDonePre if you need it.
 				|v:completed_item| gives the completed item.
 
+				Sets these |v:event| keys:
+				    complete_word	The word that was
+							selected, empty if
+							abandoned complete.
+				    complete_type	|complete_info_mode|
+				    reason	Reason for completion being
+						done. Can be one of:
+						- "accept": completion was
+						  accepted using |complete_CTRL-Y|.
+						- "cancel": completion was cancelled
+						  using |complete_CTRL-E|, pressing
+						  a non-keyword character, or
+						  triggering a new completion.
+
 							*CursorHold*
 CursorHold			When the user doesn't press a key for the time
 				specified with 'updatetime'.  Not triggered
@@ -512,6 +522,11 @@ CursorMoved			After the cursor was moved in Normal or Visual
 				Careful: This is triggered very often, don't
 				do anything that the user does not expect or
 				that is slow.
+							*CursorMovedC*
+CursorMovedC			After the cursor was moved in the command
+				line.  Be careful not to mess up the command
+				line, it may cause Vim to lock up.
+				<afile> expands to the |cmdline-char|.
 							*CursorMovedI*
 CursorMovedI			After the cursor was moved in Insert mode.
 				Not triggered when the popup menu is visible.
@@ -784,9 +799,6 @@ OptionSet			After setting an option (except during
 				are not global-local it is the old local
 				value.
 
-				OptionSet is not triggered on startup and for
-				the 'key' option for obvious reasons.
-
 				Usage example: Check for the existence of the
 				directory in the 'backupdir' and 'undodir'
 				options, create the directory if it doesn't
@@ -799,6 +811,8 @@ OptionSet			After setting an option (except during
 
 				Non-recursive: |:set| in the autocommand does
 				not trigger OptionSet again.
+
+				Not triggered on startup.
 
 							*QuickFixCmdPre*
 QuickFixCmdPre			Before a quickfix command is run (|:make|,
@@ -874,7 +888,7 @@ SafeState			When nothing is pending, going to wait for the
 				- Command line completion is active
 				You can use `mode()` to find out what state
 				Vim is in.  That may be:
-				- VIsual mode
+				- Visual mode
 				- Normal mode
 				- Insert mode
 				- Command-line mode
@@ -884,6 +898,9 @@ SafeState			When nothing is pending, going to wait for the
 
 							*SessionLoadPost*
 SessionLoadPost			After loading the session file created using
+				the |:mksession| command.
+							*SessionWritePost*
+SessionWritePost		After writing a session file by calling
 				the |:mksession| command.
 							*ShellCmdPost*
 ShellCmdPost			After executing a shell command with |:!cmd|,
@@ -901,18 +918,18 @@ ShellFilterPost			After executing a shell command with
 				":{range}!cmd", ":w !cmd" or ":r !cmd".
 				Can be used to check for any changed files.
 							*SourcePre*
-SourcePre			Before sourcing a vim/lua file. |:source|
+SourcePre			Before sourcing a Vimscript/Lua file. |:source|
 				<afile> is the name of the file being sourced.
 							*SourcePost*
-SourcePost			After sourcing a vim/lua file. |:source|
+SourcePost			After sourcing a Vimscript/Lua file. |:source|
 				<afile> is the name of the file being sourced.
 				Not triggered when sourcing was interrupted.
 				Also triggered after a SourceCmd autocommand
 				was triggered.
 							*SourceCmd*
-SourceCmd			When sourcing a vim/lua file. |:source|
+SourceCmd			When sourcing a Vimscript/Lua file. |:source|
 				<afile> is the name of the file being sourced.
-				The autocommand must source this file.
+				The autocommand must source that file.
 				|Cmd-event|
 							*SpellFileMissing*
 SpellFileMissing		When trying to load a spell checking file and
@@ -986,14 +1003,17 @@ TermLeave			After leaving |Terminal-mode|.
 TermClose			When a |terminal| job ends.
 				Sets these |v:event| keys:
 				    status
+							*TermRequest*
+TermRequest			When a |:terminal| child process emits an OSC
+				or DCS sequence. Sets |v:termrequest|. The
+				|event-data| is the request string.
 							*TermResponse*
 TermResponse			When Nvim receives an OSC or DCS response from
-				the terminal.  Sets |v:termresponse|. When used
-				from Lua, the response string is included in
-				the "data" field of the autocommand callback.
-				May be triggered halfway through another event
-				(file I/O, a shell command, or anything else
-				that takes time). Example: >lua
+				the host terminal. Sets |v:termresponse|. The
+				|event-data| is the response string. May be
+				triggered during another event (file I/O,
+				a shell command, or anything else that takes
+				time). Example: >lua
 
 				-- Query the terminal palette for the RGB value of color 1
 				-- (red) using OSC 4

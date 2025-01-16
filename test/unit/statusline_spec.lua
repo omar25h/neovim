@@ -1,14 +1,15 @@
-local helpers = require('test.unit.helpers')(after_each)
-local itp = helpers.gen_itp(it)
+local t = require('test.unit.testutil')
+local itp = t.gen_itp(it)
 
-local to_cstr = helpers.to_cstr
-local get_str = helpers.ffi.string
-local eq = helpers.eq
-local NULL = helpers.NULL
+local to_cstr = t.to_cstr
+local get_str = t.ffi.string
+local eq = t.eq
+local NULL = t.NULL
 
-local buffer = helpers.cimport('./src/nvim/buffer.h')
-local globals = helpers.cimport('./src/nvim/globals.h')
-local stl = helpers.cimport('./src/nvim/statusline.h')
+local buffer = t.cimport('./src/nvim/buffer.h')
+local globals = t.cimport('./src/nvim/globals.h')
+local stl = t.cimport('./src/nvim/statusline.h')
+local grid = t.cimport('./src/nvim/grid.h')
 
 describe('build_stl_str_hl', function()
   local buffer_byte_size = 100
@@ -25,8 +26,11 @@ describe('build_stl_str_hl', function()
     output_buffer = to_cstr(string.rep(' ', buffer_byte_size))
 
     local pat = arg.pat or ''
-    local fillchar = arg.fillchar or (' '):byte()
+    local fillchar = arg.fillchar or ' '
     local maximum_cell_count = arg.maximum_cell_count or buffer_byte_size
+    if type(fillchar) == type('') then
+      fillchar = grid.schar_from_str(fillchar)
+    end
 
     return stl.build_stl_str_hl(
       globals.curwin,
@@ -37,6 +41,7 @@ describe('build_stl_str_hl', function()
       0,
       fillchar,
       maximum_cell_count,
+      NULL,
       NULL,
       NULL,
       NULL
@@ -51,17 +56,17 @@ describe('build_stl_str_hl', function()
   -- @param input_stl The format string for the statusline
   -- @param expected_stl The expected result string for the statusline
   --
-  -- @param arg Options can be placed in an optional dictionary as the last parameter
+  -- @param arg Options can be placed in an optional dict as the last parameter
   --    .expected_cell_count The expected number of cells build_stl_str_hl will return
   --    .expected_byte_length The expected byte length of the string (defaults to byte length of expected_stl)
   --    .file_name The name of the file to be tested (useful in %f type tests)
   --    .fillchar The character that will be used to fill any 'extra' space in the stl
   local function statusline_test(description, statusline_cell_count, input_stl, expected_stl, arg)
     -- arg is the optional parameter
-    -- so we either fill in option with arg or an empty dictionary
+    -- so we either fill in option with arg or an empty dict
     local option = arg or {}
 
-    local fillchar = option.fillchar or (' '):byte()
+    local fillchar = option.fillchar or ' '
     local expected_cell_count = option.expected_cell_count or statusline_cell_count
     local expected_byte_length = option.expected_byte_length or #expected_stl
 
@@ -110,35 +115,35 @@ describe('build_stl_str_hl', function()
     10,
     'abcde%=',
     'abcde!!!!!',
-    { fillchar = ('!'):byte() }
+    { fillchar = '!' }
   )
   statusline_test(
     'should handle `~` as a fillchar',
     10,
     '%=abcde',
     '~~~~~abcde',
-    { fillchar = ('~'):byte() }
+    { fillchar = '~' }
   )
   statusline_test(
     'should put fillchar `!` in between text',
     10,
     'abc%=def',
     'abc!!!!def',
-    { fillchar = ('!'):byte() }
+    { fillchar = '!' }
   )
   statusline_test(
     'should put fillchar `~` in between text',
     10,
     'abc%=def',
     'abc~~~~def',
-    { fillchar = ('~'):byte() }
+    { fillchar = '~' }
   )
   statusline_test(
     'should put fillchar `━` in between text',
     10,
     'abc%=def',
     'abc━━━━def',
-    { fillchar = 0x2501 }
+    { fillchar = '━' }
   )
   statusline_test(
     'should handle zero-fillchar as a space',
@@ -249,7 +254,7 @@ describe('build_stl_str_hl', function()
       expected_stl:gsub('%~', ' '),
       arg
     )
-    arg.fillchar = ('!'):byte()
+    arg.fillchar = '!'
     statusline_test(
       description .. ' with fillchar `!`',
       statusline_cell_count,
@@ -257,7 +262,7 @@ describe('build_stl_str_hl', function()
       expected_stl:gsub('%~', '!'),
       arg
     )
-    arg.fillchar = 0x2501
+    arg.fillchar = '━'
     statusline_test(
       description .. ' with fillchar `━`',
       statusline_cell_count,
@@ -456,7 +461,7 @@ describe('build_stl_str_hl', function()
     10,
     'Ą%=mid%=end',
     'Ą@mid@@end',
-    { fillchar = ('@'):byte() }
+    { fillchar = '@' }
   )
 
   -- escaping % testing

@@ -2,11 +2,12 @@
 
 #include <stdbool.h>
 #include <stdint.h>  // IWYU pragma: keep
+#include <string.h>
 #include <time.h>  // IWYU pragma: keep
 
 #include "auto/config.h"
 #include "nvim/macros_defs.h"
-#include "nvim/memory_defs.h"  // IWYU pragma: export
+#include "nvim/memory_defs.h"  // IWYU pragma: keep
 
 /// `malloc()` function signature
 typedef void *(*MemMalloc)(size_t);
@@ -70,5 +71,3 @@ EXTERN size_t arena_alloc_count INIT( = 0);
 
 // Like strcpy() but allows overlapped source and destination.
 #define STRMOVE(d, s)       memmove((d), (s), strlen(s) + 1)
-
-#define STRCAT(d, s)        strcat((char *)(d), (char *)(s))  // NOLINT(runtime/printf)

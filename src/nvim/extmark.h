@@ -4,12 +4,11 @@
 #include <stdint.h>
 
 #include "klib/kvec.h"
-#include "nvim/buffer_defs.h"  // IWYU pragma: keep
-#include "nvim/decoration_defs.h"  // IWYU pragma: keep
-#include "nvim/extmark_defs.h"  // IWYU pragma: export
+#include "nvim/extmark_defs.h"  // IWYU pragma: keep
 #include "nvim/macros_defs.h"
-#include "nvim/marktree_defs.h"  // IWYU pragma: keep
+#include "nvim/marktree_defs.h"
 #include "nvim/pos_defs.h"
+#include "nvim/types_defs.h"  // IWYU pragma: keep
 
 EXTERN int curbuf_splice_pending INIT( = 0);
 
@@ -46,8 +45,6 @@ typedef struct {
   uint64_t mark;  // raw mark id of the marktree
   int old_row;
   colnr_T old_col;
-  int row;
-  colnr_T col;
   bool invalidated;
 } ExtmarkSavePos;
 

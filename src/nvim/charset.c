@@ -8,7 +8,7 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h>
+#include <uv.h>
 
 #include "auto/config.h"
 #include "klib/kvec.h"
@@ -18,6 +18,7 @@
 #include "nvim/cursor.h"
 #include "nvim/eval/typval_defs.h"
 #include "nvim/garray.h"
+#include "nvim/garray_defs.h"
 #include "nvim/globals.h"
 #include "nvim/keycodes.h"
 #include "nvim/macros_defs.h"
@@ -27,6 +28,7 @@
 #include "nvim/path.h"
 #include "nvim/pos_defs.h"
 #include "nvim/strings.h"
+#include "nvim/types_defs.h"
 #include "nvim/vim_defs.h"
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
@@ -84,18 +86,16 @@ int init_chartab(void)
 ///
 /// @return FAIL if 'iskeyword', 'isident', 'isfname' or 'isprint' option has
 /// an error, OK otherwise.
-int buf_init_chartab(buf_T *buf, int global)
+int buf_init_chartab(buf_T *buf, bool global)
 {
-  int c;
-
   if (global) {
     // Set the default size for printable characters:
     // From <Space> to '~' is 1 (printable), others are 2 (not printable).
     // This also inits all 'isident' and 'isfname' flags to false.
-    c = 0;
+    int c = 0;
 
     while (c < ' ') {
-      g_chartab[c++] = (dy_flags & DY_UHEX) ? 4 : 2;
+      g_chartab[c++] = (dy_flags & kOptDyFlagUhex) ? 4 : 2;
     }
 
     while (c <= '~') {
@@ -109,7 +109,7 @@ int buf_init_chartab(buf_T *buf, int global)
         g_chartab[c++] = (CT_PRINT_CHAR | CT_FNAME_CHAR) + 1;
       } else {
         // the rest is unprintable by default
-        g_chartab[c++] = (dy_flags & DY_UHEX) ? 4 : 2;
+        g_chartab[c++] = (dy_flags & kOptDyFlagUhex) ? 4 : 2;
       }
     }
   }
@@ -122,9 +122,7 @@ int buf_init_chartab(buf_T *buf, int global)
     SET_CHARTAB(buf, '-');
   }
 
-  // Walk through the 'isident', 'iskeyword', 'isfname' and 'isprint'
-  // options Each option is a list of characters, character numbers or
-  // ranges, separated by commas, e.g.: "200-210,x,#-178,-"
+  // Walk through the 'isident', 'iskeyword', 'isfname' and 'isprint' options.
   for (int i = global ? 0 : 3; i <= 3; i++) {
     const char *p;
     if (i == 0) {
@@ -140,110 +138,130 @@ int buf_init_chartab(buf_T *buf, int global)
       // fourth round: 'iskeyword'
       p = buf->b_p_isk;
     }
-
-    while (*p) {
-      bool tilde = false;
-      bool do_isalpha = false;
-
-      if ((*p == '^') && (p[1] != NUL)) {
-        tilde = true;
-        p++;
-      }
-
-      if (ascii_isdigit(*p)) {
-        c = getdigits_int((char **)&p, true, 0);
-      } else {
-        c = mb_ptr2char_adv(&p);
-      }
-      int c2 = -1;
-
-      if ((*p == '-') && (p[1] != NUL)) {
-        p++;
-
-        if (ascii_isdigit(*p)) {
-          c2 = getdigits_int((char **)&p, true, 0);
-        } else {
-          c2 = mb_ptr2char_adv(&p);
-        }
-      }
-
-      if ((c <= 0)
-          || (c >= 256)
-          || ((c2 < c) && (c2 != -1))
-          || (c2 >= 256)
-          || !((*p == NUL) || (*p == ','))) {
-        return FAIL;
-      }
-
-      if (c2 == -1) {  // not a range
-        // A single '@' (not "@-@"):
-        // Decide on letters being ID/printable/keyword chars with
-        // standard function isalpha(). This takes care of locale for
-        // single-byte characters).
-        if (c == '@') {
-          do_isalpha = true;
-          c = 1;
-          c2 = 255;
-        } else {
-          c2 = c;
-        }
-      }
-
-      while (c <= c2) {
-        // Use the MB_ functions here, because isalpha() doesn't
-        // work properly when 'encoding' is "latin1" and the locale is
-        // "C".
-        if (!do_isalpha
-            || mb_islower(c)
-            || mb_isupper(c)) {
-          if (i == 0) {
-            // (re)set ID flag
-            if (tilde) {
-              g_chartab[c] &= (uint8_t) ~CT_ID_CHAR;
-            } else {
-              g_chartab[c] |= CT_ID_CHAR;
-            }
-          } else if (i == 1) {
-            // (re)set printable
-            if (c < ' ' || c > '~') {
-              if (tilde) {
-                g_chartab[c] = (uint8_t)((g_chartab[c] & ~CT_CELL_MASK)
-                                         + ((dy_flags & DY_UHEX) ? 4 : 2));
-                g_chartab[c] &= (uint8_t) ~CT_PRINT_CHAR;
-              } else {
-                g_chartab[c] = (uint8_t)((g_chartab[c] & ~CT_CELL_MASK) + 1);
-                g_chartab[c] |= CT_PRINT_CHAR;
-              }
-            }
-          } else if (i == 2) {
-            // (re)set fname flag
-            if (tilde) {
-              g_chartab[c] &= (uint8_t) ~CT_FNAME_CHAR;
-            } else {
-              g_chartab[c] |= CT_FNAME_CHAR;
-            }
-          } else {  // i == 3
-            // (re)set keyword flag
-            if (tilde) {
-              RESET_CHARTAB(buf, c);
-            } else {
-              SET_CHARTAB(buf, c);
-            }
-          }
-        }
-        c++;
-      }
-
-      c = (uint8_t)(*p);
-      p = skip_to_option_part(p);
-
-      if ((c == ',') && (*p == NUL)) {
-        // Trailing comma is not allowed.
-        return FAIL;
-      }
+    if (parse_isopt(p, buf, false) == FAIL) {
+      return FAIL;
     }
   }
+
   chartab_initialized = true;
+  return OK;
+}
+
+/// Checks the format for the option settings 'iskeyword', 'isident', 'isfname'
+/// or 'isprint'.
+/// Returns FAIL if has an error, OK otherwise.
+int check_isopt(char *var)
+{
+  return parse_isopt(var, NULL, true);
+}
+
+/// @param only_check  if false: refill g_chartab[]
+static int parse_isopt(const char *var, buf_T *buf, bool only_check)
+{
+  const char *p = var;
+
+  // Parses the 'isident', 'iskeyword', 'isfname' and 'isprint' options.
+  // Each option is a list of characters, character numbers or ranges,
+  // separated by commas, e.g.: "200-210,x,#-178,-"
+  while (*p) {
+    bool tilde = false;
+    bool do_isalpha = false;
+
+    if (*p == '^' && p[1] != NUL) {
+      tilde = true;
+      p++;
+    }
+
+    int c;
+    if (ascii_isdigit(*p)) {
+      c = getdigits_int((char **)&p, true, 0);
+    } else {
+      c = mb_ptr2char_adv(&p);
+    }
+    int c2 = -1;
+
+    if (*p == '-' && p[1] != NUL) {
+      p++;
+
+      if (ascii_isdigit(*p)) {
+        c2 = getdigits_int((char **)&p, true, 0);
+      } else {
+        c2 = mb_ptr2char_adv(&p);
+      }
+    }
+
+    if (c <= 0 || c >= 256 || (c2 < c && c2 != -1) || c2 >= 256
+        || !(*p == NUL || *p == ',')) {
+      return FAIL;
+    }
+
+    bool trail_comma = *p == ',';
+    p = skip_to_option_part(p);
+    if (trail_comma && *p == NUL) {
+      // Trailing comma is not allowed.
+      return FAIL;
+    }
+
+    if (only_check) {
+      continue;
+    }
+
+    if (c2 == -1) {  // not a range
+      // A single '@' (not "@-@"):
+      // Decide on letters being ID/printable/keyword chars with
+      // standard function isalpha(). This takes care of locale for
+      // single-byte characters).
+      if (c == '@') {
+        do_isalpha = true;
+        c = 1;
+        c2 = 255;
+      } else {
+        c2 = c;
+      }
+    }
+
+    while (c <= c2) {
+      // Use the MB_ functions here, because isalpha() doesn't
+      // work properly when 'encoding' is "latin1" and the locale is
+      // "C".
+      if (!do_isalpha
+          || mb_islower(c)
+          || mb_isupper(c)) {
+        if (var == p_isi) {  // (re)set ID flag
+          if (tilde) {
+            g_chartab[c] &= (uint8_t) ~CT_ID_CHAR;
+          } else {
+            g_chartab[c] |= CT_ID_CHAR;
+          }
+        } else if (var == p_isp) {  // (re)set printable
+          if (c < ' ' || c > '~') {
+            if (tilde) {
+              g_chartab[c] = (uint8_t)((g_chartab[c] & ~CT_CELL_MASK)
+                                       + ((dy_flags & kOptDyFlagUhex) ? 4 : 2));
+              g_chartab[c] &= (uint8_t) ~CT_PRINT_CHAR;
+            } else {
+              g_chartab[c] = (uint8_t)((g_chartab[c] & ~CT_CELL_MASK) + 1);
+              g_chartab[c] |= CT_PRINT_CHAR;
+            }
+          }
+        } else if (var == p_isf) {  // (re)set fname flag
+          if (tilde) {
+            g_chartab[c] &= (uint8_t) ~CT_FNAME_CHAR;
+          } else {
+            g_chartab[c] |= CT_FNAME_CHAR;
+          }
+        } else {  // (var == p_isk || var == buf->b_p_isk) (re)set keyword flag
+          if (tilde) {
+            RESET_CHARTAB(buf, c);
+          } else {
+            SET_CHARTAB(buf, c);
+          }
+        }
+      }
+      c++;
+    }
+  }
+
   return OK;
 }
 
@@ -489,7 +507,7 @@ char *str_foldcase(char *str, int orglen, char *buf, int buflen)
           }
         }
       }
-      (void)utf_char2bytes(lc, STR_PTR(i));
+      utf_char2bytes(lc, STR_PTR(i));
     }
 
     // skip to next multi-byte char
@@ -596,7 +614,7 @@ void transchar_nonprint(const buf_T *buf, char *charbuf, int c)
   }
   assert(c <= 0xff);
 
-  if (dy_flags & DY_UHEX || c > 0x7f) {
+  if (dy_flags & kOptDyFlagUhex || c > 0x7f) {
     // 'display' has "uhex"
     transchar_hex(charbuf, c);
   } else {
@@ -847,11 +865,11 @@ bool vim_isfilec(int c)
 }
 
 /// Check if "c" is a valid file-name character, including characters left
-/// out of 'isfname' to make "gf" work, such as comma, space, '@', etc.
+/// out of 'isfname' to make "gf" work, such as ',', ' ', '@', ':', etc.
 bool vim_is_fname_char(int c)
   FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT
 {
-  return vim_isfilec(c) || c == ',' || c == ' ' || c == '@';
+  return vim_isfilec(c) || c == ',' || c == ' ' || c == '@' || c == ':';
 }
 
 /// Check that "c" is a valid file-name character or a wildcard character
@@ -1049,7 +1067,7 @@ char *skiptowhite(const char *p)
 ///
 /// @return Pointer to the next whitespace character.
 char *skiptowhite_esc(const char *p)
-  FUNC_ATTR_PURE
+  FUNC_ATTR_NONNULL_ALL FUNC_ATTR_PURE
 {
   while (*p != ' ' && *p != '\t' && *p != NUL) {
     if (((*p == '\\') || (*p == Ctrl_V)) && (*(p + 1) != NUL)) {
@@ -1445,9 +1463,9 @@ bool rem_backslash(const char *str)
                  && str[1] != '?'
                  && !vim_isfilec((uint8_t)str[1])));
 
-#else  // ifdef BACKSLASH_IN_FILENAME
+#else
   return str[0] == '\\' && str[1] != NUL;
-#endif  // ifdef BACKSLASH_IN_FILENAME
+#endif
 }
 
 /// Halve the number of backslashes in a file name argument.
@@ -1455,10 +1473,20 @@ bool rem_backslash(const char *str)
 /// @param p
 void backslash_halve(char *p)
 {
-  for (; *p; p++) {
-    if (rem_backslash(p)) {
-      STRMOVE(p, p + 1);
+  for (; *p && !rem_backslash(p); p++) {}
+  if (*p != NUL) {
+    char *dst = p;
+    goto start;
+    while (*p != NUL) {
+      if (rem_backslash(p)) {
+start:
+        *dst++ = *(p + 1);
+        p += 2;
+      } else {
+        *dst++ = *p++;
+      }
     }
+    *dst = NUL;
   }
 }
 
@@ -1470,8 +1498,16 @@ void backslash_halve(char *p)
 char *backslash_halve_save(const char *p)
   FUNC_ATTR_NONNULL_ALL FUNC_ATTR_NONNULL_RET
 {
-  // TODO(philix): simplify and improve backslash_halve_save algorithm
-  char *res = xstrdup(p);
-  backslash_halve(res);
+  char *res = xmalloc(strlen(p) + 1);
+  char *dst = res;
+  while (*p != NUL) {
+    if (rem_backslash(p)) {
+      *dst++ = *(p + 1);
+      p += 2;
+    } else {
+      *dst++ = *p++;
+    }
+  }
+  *dst = NUL;
   return res;
 }

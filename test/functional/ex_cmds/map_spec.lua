@@ -1,28 +1,29 @@
-local helpers = require("test.functional.helpers")(after_each)
+local t = require('test.testutil')
+local n = require('test.functional.testnvim')()
 local Screen = require('test.functional.ui.screen')
 
-local eq = helpers.eq
-local exec = helpers.exec
-local exec_capture = helpers.exec_capture
-local feed = helpers.feed
-local meths = helpers.meths
-local clear = helpers.clear
-local command = helpers.command
-local expect = helpers.expect
-local insert = helpers.insert
-local eval = helpers.eval
+local eq = t.eq
+local exec = n.exec
+local exec_capture = n.exec_capture
+local feed = n.feed
+local api = n.api
+local clear = n.clear
+local command = n.command
+local expect = n.expect
+local insert = n.insert
+local eval = n.eval
 
 describe(':*map', function()
   before_each(clear)
 
   it('are not affected by &isident', function()
-    meths.set_var('counter', 0)
+    api.nvim_set_var('counter', 0)
     command('nnoremap <C-x> :let counter+=1<CR>')
-    meths.set_option_value('isident', ('%u'):format(('>'):byte()), {})
+    api.nvim_set_option_value('isident', ('%u'):format(('>'):byte()), {})
     command('nnoremap <C-y> :let counter+=1<CR>')
     -- &isident used to disable keycode parsing here as well
     feed('\24\25<C-x><C-y>')
-    eq(4, meths.get_var('counter'))
+    eq(4, api.nvim_get_var('counter'))
   end)
 
   it(':imap <M-">', function()
@@ -33,56 +34,60 @@ describe(':*map', function()
 
   it('shows <Nop> as mapping rhs', function()
     command('nmap asdf <Nop>')
-    eq([[
+    eq(
+      [[
 
 n  asdf          <Nop>]],
-       exec_capture('nmap asdf'))
+      exec_capture('nmap asdf')
+    )
   end)
 
   it('mappings with description can be filtered', function()
-    meths.set_keymap('n', 'asdf1', 'qwert', {desc='do the one thing'})
-    meths.set_keymap('n', 'asdf2', 'qwert', {desc='doesnot really do anything'})
-    meths.set_keymap('n', 'asdf3', 'qwert', {desc='do the other thing'})
-    eq([[
+    api.nvim_set_keymap('n', 'asdf1', 'qwert', { desc = 'do the one thing' })
+    api.nvim_set_keymap('n', 'asdf2', 'qwert', { desc = 'doesnot really do anything' })
+    api.nvim_set_keymap('n', 'asdf3', 'qwert', { desc = 'do the other thing' })
+    eq(
+      [[
 
 n  asdf3         qwert
                  do the other thing
 n  asdf1         qwert
                  do the one thing]],
-       exec_capture('filter the nmap'))
+      exec_capture('filter the nmap')
+    )
   end)
 
   it('<Plug> mappings ignore nore', function()
     command('let x = 0')
-    eq(0, meths.eval('x'))
+    eq(0, api.nvim_eval('x'))
     command [[
       nnoremap <Plug>(Increase_x) <cmd>let x+=1<cr>
       nmap increase_x_remap <Plug>(Increase_x)
       nnoremap increase_x_noremap <Plug>(Increase_x)
     ]]
     feed('increase_x_remap')
-    eq(1, meths.eval('x'))
+    eq(1, api.nvim_eval('x'))
     feed('increase_x_noremap')
-    eq(2, meths.eval('x'))
+    eq(2, api.nvim_eval('x'))
   end)
 
   it("Doesn't auto ignore nore for keys before or after <Plug> mapping", function()
     command('let x = 0')
-    eq(0, meths.eval('x'))
+    eq(0, api.nvim_eval('x'))
     command [[
       nnoremap x <nop>
       nnoremap <Plug>(Increase_x) <cmd>let x+=1<cr>
       nmap increase_x_remap x<Plug>(Increase_x)x
       nnoremap increase_x_noremap x<Plug>(Increase_x)x
     ]]
-    insert("Some text")
+    insert('Some text')
     eq('Some text', eval("getline('.')"))
 
     feed('increase_x_remap')
-    eq(1, meths.eval('x'))
+    eq(1, api.nvim_eval('x'))
     eq('Some text', eval("getline('.')"))
     feed('increase_x_noremap')
-    eq(2, meths.eval('x'))
+    eq(2, api.nvim_eval('x'))
     eq('Some te', eval("getline('.')"))
   end)
 
@@ -98,26 +103,25 @@ describe('Screen', function()
   before_each(function()
     clear()
     screen = Screen.new(20, 5)
-    screen:attach()
   end)
 
   it('cursor is restored after :map <expr> which calls input()', function()
     command('map <expr> x input("> ")')
     screen:expect([[
       ^                    |
-      ~                   |*3
+      {1:~                   }|*3
                           |
     ]])
     feed('x')
     screen:expect([[
                           |
-      ~                   |*3
+      {1:~                   }|*3
       > ^                  |
     ]])
     feed('\n')
     screen:expect([[
       ^                    |
-      ~                   |*3
+      {1:~                   }|*3
       >                   |
     ]])
   end)
@@ -127,20 +131,20 @@ describe('Screen', function()
     feed('i')
     screen:expect([[
       ^                    |
-      ~                   |*3
-      -- INSERT --        |
+      {1:~                   }|*3
+      {5:-- INSERT --}        |
     ]])
     feed('x')
     screen:expect([[
                           |
-      ~                   |*3
+      {1:~                   }|*3
       > ^                  |
     ]])
     feed('\n')
     screen:expect([[
       ^                    |
-      ~                   |*3
-      -- INSERT --        |
+      {1:~                   }|*3
+      {5:-- INSERT --}        |
     ]])
   end)
 
@@ -149,7 +153,7 @@ describe('Screen', function()
     feed(':<F2>')
     screen:expect([[
                           |
-      ~                   |*3
+      {1:~                   }|*3
       :^                   |
     ]])
   end)
@@ -177,7 +181,7 @@ describe('Screen', function()
       one                 |
       ^two                 |
       three               |
-      [on]                |
+      {9:[on]                }|
                           |
     ]])
   end)
@@ -187,15 +191,16 @@ describe('Screen', function()
     command('nmap <expr> <F2> execute("throw 42")')
     feed('<F2>')
     screen:expect([[
-                                              |*2
-      Error detected while processing :       |
-      E605: Exception not caught: 42          |
-      Press ENTER or type command to continue^ |
+                                              |
+      {3:                                        }|
+      {9:Error detected while processing :}       |
+      {9:E605: Exception not caught: 42}          |
+      {6:Press ENTER or type command to continue}^ |
     ]])
     feed('<CR>')
     screen:expect([[
       ^                                        |
-      ~                                       |*3
+      {1:~                                       }|*3
                                               |
     ]])
   end)
@@ -206,32 +211,32 @@ describe('Screen', function()
     feed(':echo "foo')
     screen:expect([[
                                               |
-      ~                                       |*3
+      {1:~                                       }|*3
       :echo "foo^                              |
     ]])
     feed('<F2>')
     screen:expect([[
-                                              |
+      {3:                                        }|
       :echo "foo                              |
-      Error detected while processing :       |
-      E605: Exception not caught: 42          |
+      {9:Error detected while processing :}       |
+      {9:E605: Exception not caught: 42}          |
       :echo "foo^                              |
     ]])
     feed('"')
     screen:expect([[
-                                              |
+      {3:                                        }|
       :echo "foo                              |
-      Error detected while processing :       |
-      E605: Exception not caught: 42          |
+      {9:Error detected while processing :}       |
+      {9:E605: Exception not caught: 42}          |
       :echo "foo"^                             |
     ]])
     feed('\n')
     screen:expect([[
       :echo "foo                              |
-      Error detected while processing :       |
-      E605: Exception not caught: 42          |
+      {9:Error detected while processing :}       |
+      {9:E605: Exception not caught: 42}          |
       foo                                     |
-      Press ENTER or type command to continue^ |
+      {6:Press ENTER or type command to continue}^ |
     ]])
   end)
 
@@ -242,7 +247,7 @@ describe('Screen', function()
     feed(':                      nmap a<CR>')
     screen:expect([[
       ^                                        |
-      ~                                       |*3
+      {1:~                                       }|*3
       n  a             b                      |
     ]])
   end)

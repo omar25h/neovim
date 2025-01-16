@@ -2,11 +2,8 @@
 
 // Some defines from the old feature.h
 #define SESSION_FILE "Session.vim"
-#define MAX_MSG_HIST_LEN 200
 #define SYS_OPTWIN_FILE "$VIMRUNTIME/optwin.vim"
 #define RUNTIME_DIRNAME "runtime"
-
-#include "auto/config.h"
 
 enum {
   /// length of a buffer to store a number in ASCII (64 bits binary + NUL)
@@ -55,9 +52,6 @@ typedef enum {
   kCdCauseWindow,  ///< Switching to another window.
   kCdCauseAuto,    ///< On 'autochdir'.
 } CdCause;
-
-// bring lots of system header files
-#include "nvim/os/os_defs.h"  // IWYU pragma: keep
 
 // return values for functions
 #if !(defined(OK) && (OK == 1))

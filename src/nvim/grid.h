@@ -2,13 +2,11 @@
 
 #include <stdbool.h>
 #include <stddef.h>  // IWYU pragma: keep
-#include <string.h>
 
-#include "nvim/buffer_defs.h"
-#include "nvim/grid_defs.h"  // IWYU pragma: export
+#include "nvim/grid_defs.h"  // IWYU pragma: keep
 #include "nvim/macros_defs.h"
-#include "nvim/mbyte.h"
 #include "nvim/pos_defs.h"
+#include "nvim/types_defs.h"
 
 /// By default, all windows are drawn on a single rectangular grid, represented by
 /// this ScreenGrid instance. In multigrid mode each window will have its own
@@ -29,8 +27,12 @@ EXTERN sattr_T *linebuf_attr INIT( = NULL);
 EXTERN colnr_T *linebuf_vcol INIT( = NULL);
 EXTERN char *linebuf_scratch INIT( = NULL);
 
-// Low-level functions to manipulate individual character cells on the
-// screen grid.
+/// flags for grid_put_linebuf()
+enum {
+  SLF_RIGHTLEFT = 1,
+  SLF_WRAP      = 2,
+  SLF_INC_VCOL  = 4,
+};
 
 /// Put a ASCII character in a screen cell.
 ///
@@ -41,18 +43,6 @@ EXTERN char *linebuf_scratch INIT( = NULL);
 #else
 # define schar_from_ascii(x) ((schar_T)(x))
 #endif
-
-/// Put a unicode character in a screen cell.
-static inline schar_T schar_from_char(int c)
-{
-  schar_T sc = 0;
-  if (c >= 0x200000) {
-    // TODO(bfredl): this must NEVER happen, even if the file contained overlong sequences
-    c = 0xFFFD;
-  }
-  utf_char2bytes(c, (char *)&sc);
-  return sc;
-}
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "grid.h.generated.h"

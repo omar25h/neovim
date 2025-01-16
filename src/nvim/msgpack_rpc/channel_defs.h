@@ -1,14 +1,9 @@
 #pragma once
 
-#include <msgpack.h>
 #include <stdbool.h>
 #include <uv.h>
 
-#include "klib/kvec.h"
-#include "nvim/api/private/defs.h"
 #include "nvim/api/private/dispatch.h"
-#include "nvim/event/process.h"
-#include "nvim/event/socket.h"
 #include "nvim/map_defs.h"
 
 typedef struct Channel Channel;
@@ -41,11 +36,10 @@ typedef struct {
 } RequestEvent;
 
 typedef struct {
-  Set(cstr_t) subscribed_events[1];
   bool closed;
   Unpacker *unpacker;
   uint32_t next_request_id;
   kvec_t(ChannelCallFrame *) call_stack;
-  Dictionary info;
+  Dict info;
   ClientType client_type;
 } RpcState;

@@ -5,8 +5,7 @@
 
 #include "nvim/eval/typval_defs.h"
 #include "nvim/ex_eval_defs.h"
-#include "nvim/normal_defs.h"
-#include "nvim/pos_defs.h"
+#include "nvim/os/time_defs.h"
 #include "nvim/regexp_defs.h"
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
@@ -127,7 +126,7 @@ struct aucmd_executable_t {
 typedef char *(*LineGetter)(int, void *, int, bool);
 
 /// Structure for command definition.
-typedef struct cmdname {
+typedef struct {
   char *cmd_name;                      ///< Name of the command.
   ex_func_T cmd_func;                  ///< Function with implementation of this command.
   ex_preview_func_T cmd_preview_func;  ///< Preview callback function of this command.
@@ -168,8 +167,8 @@ struct exarg {
   int bad_char;                 ///< BAD_KEEP, BAD_DROP or replacement byte
   int useridx;                  ///< user command index
   char *errmsg;                 ///< returned error message
-  LineGetter getline;           ///< Function used to get the next line
-  void *cookie;                 ///< argument for getline()
+  LineGetter ea_getline;        ///< function used to get the next line
+  void *cookie;                 ///< argument for ea_getline()
   cstack_T *cstack;             ///< condition stack for ":if" etc.
 };
 
@@ -229,3 +228,10 @@ typedef struct {
     bool bar;
   } magic;
 } CmdParseInfo;
+
+/// Previous :substitute replacement string definition
+typedef struct {
+  char *sub;            ///< Previous replacement string.
+  Timestamp timestamp;  ///< Time when it was last set.
+  AdditionalData *additional_data;  ///< Additional data left from ShaDa file.
+} SubReplacementString;
