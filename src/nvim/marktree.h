@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #include "nvim/decoration_defs.h"
-#include "nvim/marktree_defs.h"  // IWYU pragma: export
+#include "nvim/marktree_defs.h"  // IWYU pragma: keep
 #include "nvim/pos_defs.h"  // IWYU pragma: keep
 // only for debug functions:
 #include "nvim/api/private/defs.h"  // IWYU pragma: keep
@@ -123,6 +123,11 @@ static inline MTPair mtpair_from(MTKey start, MTKey end)
 static inline DecorInline mt_decor(MTKey key)
 {
   return (DecorInline){ .ext = key.flags & MT_FLAG_DECOR_EXT, .data = key.decor_data };
+}
+
+static inline DecorVirtText *mt_decor_virt(MTKey mark)
+{
+  return (mark.flags & MT_FLAG_DECOR_EXT) ? mark.decor_data.ext.vt : NULL;
 }
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS

@@ -1,12 +1,19 @@
-local helpers = require('test.unit.helpers')(after_each)
-local itp = helpers.gen_itp(it)
+local t = require('test.unit.testutil')
+local itp = t.gen_itp(it)
 
-local cimport = helpers.cimport
-local eq = helpers.eq
-local ffi = helpers.ffi
-local to_cstr = helpers.to_cstr
+local child_call_once = t.child_call_once
+local cimport = t.cimport
+local eq = t.eq
+local ffi = t.ffi
+local to_cstr = t.to_cstr
 
 local strings = cimport('stdlib.h', './src/nvim/strings.h', './src/nvim/memory.h')
+
+local UVARNUM_TYPE
+
+child_call_once(function()
+  UVARNUM_TYPE = ffi.typeof('uvarnumber_T')
+end)
 
 describe('vim_strsave_escaped()', function()
   local vim_strsave_escaped = function(s, chars)
@@ -140,13 +147,22 @@ end)
 
 describe('vim_snprintf()', function()
   local function a(expected, buf, bsize, fmt, ...)
-    eq(#expected, strings.vim_snprintf(buf, bsize, fmt, ...))
+    local args = { ... }
+    local ctx = string.format('snprintf(buf, %d, "%s"', bsize, fmt)
+    for _, x in ipairs(args) do
+      ctx = ctx .. ', ' .. tostring(x)
+    end
+    ctx = ctx .. string.format(') = %s', expected)
+    eq(#expected, strings.vim_snprintf(buf, bsize, fmt, ...), ctx)
     if bsize > 0 then
       local actual = ffi.string(buf, math.min(#expected + 1, bsize))
       eq(expected:sub(1, bsize - 1) .. '\0', actual)
     end
   end
 
+  local function uv(n)
+    return ffi.cast(UVARNUM_TYPE, n)
+  end
   local function i(n)
     return ffi.cast('int', n)
   end
@@ -181,14 +197,14 @@ describe('vim_snprintf()', function()
       a('  1234567', buf, bsize, '%9ld', l(1234567))
       a('1234567  ', buf, bsize, '%-9ld', l(1234567))
       a('deadbeef', buf, bsize, '%x', u(0xdeadbeef))
-      a('001100', buf, bsize, '%06b', u(12))
+      a('001100', buf, bsize, '%06b', uv(12))
       a('one two', buf, bsize, '%s %s', 'one', 'two')
       a('1.234000', buf, bsize, '%f', 1.234)
       a('1.234000e+00', buf, bsize, '%e', 1.234)
       a('nan', buf, bsize, '%f', 0.0 / 0.0)
       a('inf', buf, bsize, '%f', 1.0 / 0.0)
       a('-inf', buf, bsize, '%f', -1.0 / 0.0)
-      a('-0.000000', buf, bsize, '%f', -0.0)
+      a('-0.000000', buf, bsize, '%f', tonumber('-0.0'))
       a('漢語', buf, bsize, '%s', '漢語')
       a('  漢語', buf, bsize, '%8s', '漢語')
       a('漢語  ', buf, bsize, '%-8s', '漢語')
@@ -223,17 +239,17 @@ describe('vim_snprintf()', function()
       a('three one two', buf, bsize, '%3$s %1$s %2$s', 'one', 'two', 'three')
       a('1234567', buf, bsize, '%1$d', i(1234567))
       a('deadbeef', buf, bsize, '%1$x', u(0xdeadbeef))
-      a('001100', buf, bsize, '%2$0*1$b', i(6), u(12))
-      a('001100', buf, bsize, '%1$0.*2$b', u(12), i(6))
+      a('001100', buf, bsize, '%2$0*1$b', i(6), uv(12))
+      a('001100', buf, bsize, '%1$0.*2$b', uv(12), i(6))
       a('one two', buf, bsize, '%1$s %2$s', 'one', 'two')
-      a('001100', buf, bsize, '%06b', u(12))
+      a('001100', buf, bsize, '%06b', uv(12))
       a('two one', buf, bsize, '%2$s %1$s', 'one', 'two')
       a('1.234000', buf, bsize, '%1$f', 1.234)
       a('1.234000e+00', buf, bsize, '%1$e', 1.234)
       a('nan', buf, bsize, '%1$f', 0.0 / 0.0)
       a('inf', buf, bsize, '%1$f', 1.0 / 0.0)
       a('-inf', buf, bsize, '%1$f', -1.0 / 0.0)
-      a('-0.000000', buf, bsize, '%1$f', -0.0)
+      a('-0.000000', buf, bsize, '%1$f', tonumber('-0.0'))
     end
   end)
 
@@ -261,7 +277,7 @@ end)
 
 describe('reverse_text', function()
   local reverse_text = function(str)
-    return helpers.internalize(strings.reverse_text(to_cstr(str)))
+    return t.internalize(strings.reverse_text(to_cstr(str)))
   end
 
   itp('handles empty string', function()

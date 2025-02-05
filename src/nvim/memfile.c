@@ -46,8 +46,9 @@
 
 #include "nvim/assert_defs.h"
 #include "nvim/buffer_defs.h"
+#include "nvim/errors.h"
 #include "nvim/fileio.h"
-#include "nvim/gettext.h"
+#include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
 #include "nvim/map_defs.h"
 #include "nvim/memfile.h"
@@ -56,10 +57,12 @@
 #include "nvim/memory.h"
 #include "nvim/message.h"
 #include "nvim/os/fs.h"
+#include "nvim/os/fs_defs.h"
 #include "nvim/os/input.h"
-#include "nvim/os/os.h"
+#include "nvim/os/os_defs.h"
 #include "nvim/path.h"
 #include "nvim/pos_defs.h"
+#include "nvim/types_defs.h"
 #include "nvim/vim_defs.h"
 
 #define MEMFILE_PAGE_SIZE 4096       /// default page size
@@ -204,7 +207,7 @@ void mf_close_file(buf_T *buf, bool getlines)
   if (getlines) {
     // get all blocks in memory by accessing all lines (clumsy!)
     for (linenr_T lnum = 1; lnum <= buf->b_ml.ml_line_count; lnum++) {
-      (void)ml_get_buf(buf, lnum);
+      ml_get_buf(buf, lnum);
     }
   }
 
@@ -271,7 +274,7 @@ bhdr_T *mf_new(memfile_T *mfp, bool negative, unsigned page_count)
 
   // Init the data to all zero, to avoid reading uninitialized data.
   // This also avoids that the passwd file ends up in the swap file!
-  (void)memset(hp->bh_data, 0, (size_t)mfp->mf_page_size * page_count);
+  memset(hp->bh_data, 0, (size_t)mfp->mf_page_size * page_count);
 
   return hp;
 }
@@ -390,7 +393,7 @@ int mf_sync(memfile_T *mfp, int flags)
   // Then we only try to write blocks within the existing file. If that also
   // fails then we give up.
   int status = OK;
-  bhdr_T *hp;
+  bhdr_T *hp = NULL;
   // note, "last" block is typically earlier in the hash list
   map_foreach_value(&mfp->mf_hash, hp, {
     if (((flags & MFS_ALL) || hp->bh_bnum >= 0)
@@ -563,7 +566,8 @@ static int mf_write(memfile_T *mfp, bhdr_T *hp)
   bhdr_T *hp2;
   unsigned page_count;      // number of pages written
 
-  if (mfp->mf_fd < 0) {     // there is no file, can't write
+  if (mfp->mf_fd < 0 && !mfp->mf_reopen) {
+    // there is no file and there was no file, can't write
     return FAIL;
   }
 
@@ -590,28 +594,48 @@ static int mf_write(memfile_T *mfp, bhdr_T *hp)
 
     // TODO(elmart): Check (page_size * nr) within off_T bounds.
     off_T offset = (off_T)(page_size * nr);  // offset in the file
-    if (vim_lseek(mfp->mf_fd, offset, SEEK_SET) != offset) {
-      PERROR(_("E296: Seek error in swap file write"));
-      return FAIL;
-    }
     if (hp2 == NULL) {              // freed block, fill with dummy data
       page_count = 1;
     } else {
       page_count = hp2->bh_page_count;
     }
     unsigned size = page_size * page_count;  // number of bytes written
-    void *data = (hp2 == NULL) ? hp->bh_data : hp2->bh_data;
-    if ((unsigned)write_eintr(mfp->mf_fd, data, size) != size) {
-      /// Avoid repeating the error message, this mostly happens when the
-      /// disk is full. We give the message again only after a successful
-      /// write or when hitting a key. We keep on trying, in case some
-      /// space becomes available.
-      if (!did_swapwrite_msg) {
-        emsg(_("E297: Write error in swap file"));
+
+    for (int attempt = 1; attempt <= 2; attempt++) {
+      if (mfp->mf_fd >= 0) {
+        if (vim_lseek(mfp->mf_fd, offset, SEEK_SET) != offset) {
+          PERROR(_("E296: Seek error in swap file write"));
+          return FAIL;
+        }
+        void *data = (hp2 == NULL) ? hp->bh_data : hp2->bh_data;
+        if ((unsigned)write_eintr(mfp->mf_fd, data, size) == size) {
+          break;
+        }
       }
-      did_swapwrite_msg = true;
-      return FAIL;
+
+      if (attempt == 1) {
+        // If the swap file is on a network drive, and the network
+        // gets disconnected and then re-connected, we can maybe fix it
+        // by closing and then re-opening the file.
+        if (mfp->mf_fd >= 0) {
+          close(mfp->mf_fd);
+        }
+        mfp->mf_fd = os_open(mfp->mf_fname, mfp->mf_flags, S_IREAD | S_IWRITE);
+        mfp->mf_reopen = (mfp->mf_fd < 0);
+      }
+      if (attempt == 2 || mfp->mf_fd < 0) {
+        // Avoid repeating the error message, this mostly happens when the
+        // disk is full. We give the message again only after a successful
+        // write or when hitting a key. We keep on trying, in case some
+        // space becomes available.
+        if (!did_swapwrite_msg) {
+          emsg(_("E297: Write error in swap file"));
+        }
+        did_swapwrite_msg = true;
+        return FAIL;
+      }
     }
+
     did_swapwrite_msg = false;
     if (hp2 != NULL) {                             // written a non-dummy block
       hp2->bh_flags &= ~BH_DIRTY;
@@ -675,7 +699,7 @@ static int mf_trans_add(memfile_T *mfp, bhdr_T *hp)
 ///          The old number           When not found.
 blocknr_T mf_trans_del(memfile_T *mfp, blocknr_T old_nr)
 {
-  blocknr_T *num = map_ref(int64_t, int64_t)(&mfp->mf_trans, old_nr, false);
+  blocknr_T *num = map_ref(int64_t, int64_t)(&mfp->mf_trans, old_nr, NULL);
   if (num == NULL) {  // not found
     return old_nr;
   }
@@ -748,7 +772,9 @@ static bool mf_do_open(memfile_T *mfp, char *fname, int flags)
     emsg(_("E300: Swap file already exists (symlink attack?)"));
   } else {
     // try to open the file
-    mfp->mf_fd = os_open(mfp->mf_fname, flags | O_NOFOLLOW, S_IREAD | S_IWRITE);
+    flags |= O_NOFOLLOW;
+    mfp->mf_flags = flags;
+    mfp->mf_fd = os_open(mfp->mf_fname, flags, S_IREAD | S_IWRITE);
   }
 
   // If the file cannot be opened, use memory only
@@ -757,7 +783,7 @@ static bool mf_do_open(memfile_T *mfp, char *fname, int flags)
     return false;
   }
 
-  (void)os_set_cloexec(mfp->mf_fd);
+  os_set_cloexec(mfp->mf_fd);
 
   return true;
 }

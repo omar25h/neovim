@@ -7,7 +7,10 @@
 #endif
 
 #include "nvim/autocmd.h"
+#include "nvim/autocmd_defs.h"
+#include "nvim/buffer_defs.h"
 #include "nvim/eval.h"
+#include "nvim/event/defs.h"
 #include "nvim/event/signal.h"
 #include "nvim/globals.h"
 #include "nvim/log.h"
@@ -184,8 +187,7 @@ static void on_signal(SignalWatcher *handle, int signum, void *data)
   switch (signum) {
 #ifdef SIGPWR
   case SIGPWR:
-    // Signal of a power failure(eg batteries low), flush the swap files to
-    // be safe
+    // Signal of a power failure (eg batteries low), flush the swap files to be safe
     ml_sync_all(false, false, true);
     break;
 #endif

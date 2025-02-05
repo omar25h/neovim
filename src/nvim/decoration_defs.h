@@ -3,13 +3,14 @@
 #include <stdint.h>
 
 #include "klib/kvec.h"
+#include "nvim/api/private/defs.h"
 #include "nvim/types_defs.h"
 
 #define DECOR_ID_INVALID UINT32_MAX
 
 typedef struct {
   char *text;
-  int hl_id;
+  int hl_id;  ///< -1 if not specified
 } VirtTextChunk;
 
 typedef kvec_t(VirtTextChunk) VirtText;
@@ -18,10 +19,11 @@ typedef kvec_t(VirtTextChunk) VirtText;
 /// Keep in sync with virt_text_pos_str[] in decoration.h
 typedef enum {
   kVPosEndOfLine,
-  kVPosOverlay,
-  kVPosWinCol,
-  kVPosRightAlign,
+  kVPosEndOfLineRightAlign,
   kVPosInline,
+  kVPosOverlay,
+  kVPosRightAlign,
+  kVPosWinCol,
 } VirtTextPos;
 
 typedef kvec_t(struct virt_line { VirtText line; bool left_col; }) VirtLines;
@@ -54,16 +56,13 @@ typedef struct {
   schar_T conceal_char;
 } DecorHighlightInline;
 
-#define DECOR_HIGHLIGHT_INLINE_INIT { 0, DECOR_PRIORITY_BASE, 0,  0 }
+#define DECOR_HIGHLIGHT_INLINE_INIT { 0, DECOR_PRIORITY_BASE, 0, 0 }
+
 typedef struct {
   uint16_t flags;
   DecorPriority priority;
   int hl_id;  // if sign: highlight of sign text
-  // TODO(bfredl): Later signs should use sc[2] as well.
-  union {
-    char *ptr;  // sign
-    schar_T sc[2];  // conceal text (only sc[0] used)
-  } text;
+  schar_T text[SIGN_WIDTH];  // conceal text only uses text[0]
   // NOTE: if more functionality is added to a Highlight these should be overloaded
   // or restructured
   char *sign_name;
@@ -72,15 +71,17 @@ typedef struct {
   int line_hl_id;
   int cursorline_hl_id;
   uint32_t next;
+  const char *url;
 } DecorSignHighlight;
 
-#define DECOR_SIGN_HIGHLIGHT_INIT { 0, DECOR_PRIORITY_BASE, 0, { .ptr = NULL }, NULL, 0, 0, 0, 0, \
-                                    DECOR_ID_INVALID }
+#define DECOR_SIGN_HIGHLIGHT_INIT { 0, DECOR_PRIORITY_BASE, 0, { 0, 0 }, NULL, 0, 0, 0, 0, \
+                                    DECOR_ID_INVALID, NULL }
 
 enum {
   kVTIsLines = 1,
   kVTHide = 2,
   kVTLinesAbove = 4,
+  kVTRepeatLinebreak = 8,
 };
 
 typedef struct DecorVirtText DecorVirtText;
@@ -125,3 +126,26 @@ typedef struct {
 
 // initializes in a valid state for the DecorHighlightInline branch
 #define DECOR_INLINE_INIT { .ext = false, .data.hl = DECOR_HIGHLIGHT_INLINE_INIT }
+
+typedef struct {
+  NS ns_id;
+
+  enum {
+    kDecorProviderActive = 1,
+    kDecorProviderWinDisabled = 2,
+    kDecorProviderRedrawDisabled = 3,
+    kDecorProviderDisabled = 4,
+  } state;
+
+  LuaRef redraw_start;
+  LuaRef redraw_buf;
+  LuaRef redraw_win;
+  LuaRef redraw_line;
+  LuaRef redraw_end;
+  LuaRef hl_def;
+  LuaRef spell_nav;
+  int hl_valid;
+  bool hl_cached;
+
+  uint8_t error_count;
+} DecorProvider;

@@ -1,12 +1,14 @@
 name: Language server (LSP) client bug
-description: Report an issue with Neovim LSP
-labels: [bug, lsp]
+description: Report an issue with Nvim LSP
+title: "LSP: "
+type: bug
+labels: [lsp]
 body:
 
   - type: markdown
     attributes:
       value: |
-        _Before reporting:_ search [existing issues](https://github.com/neovim/neovim/issues?q=is%3Aissue+is%3Aopen+label%3Abug) and check the [FAQ](https://github.com/neovim/neovim/wiki/FAQ). Usage questions or "Why isn't X language server/feature working?" belong on [stackoverflow](https://vi.stackexchange.com/) and will be closed.
+        _Before reporting:_ search [existing issues](https://github.com/neovim/neovim/issues?q=is%3Aissue+is%3Aopen+label%3Abug) and check the [FAQ](https://neovim.io/doc/user/faq.html). Usage questions or "Why isn't X language server/feature working?" belong on [stackoverflow](https://vi.stackexchange.com/) and will be closed.
 
   - type: textarea
     attributes:
@@ -59,7 +61,7 @@ body:
 
   - type: input
     attributes:
-      label: "Neovim version (nvim -v)"
+      label: "Nvim version (nvim -v)"
       placeholder: "0.6.0 commit db1b0ee3b30f"
     validations:
       required: true

@@ -1,9 +1,9 @@
-local helpers = require('test.functional.helpers')(after_each)
-
+local n = require('test.functional.testnvim')()
 local Screen = require('test.functional.ui.screen')
-local clear = helpers.clear
-local feed = helpers.feed
-local exec = helpers.exec
+
+local clear = n.clear
+local feed = n.feed
+local exec = n.exec
 
 before_each(clear)
 
@@ -12,12 +12,6 @@ describe('Visual highlight', function()
 
   before_each(function()
     screen = Screen.new(50, 6)
-    screen:set_default_attr_ids({
-      [0] = {foreground = Screen.colors.Blue, bold = true},  -- NonText
-      [1] = {bold = true},  -- ModeMsg
-      [2] = {background = Screen.colors.LightGrey},  -- Visual
-    })
-    screen:attach()
   end)
 
   -- oldtest: Test_visual_block_with_virtualedit()
@@ -30,20 +24,20 @@ describe('Visual highlight', function()
 
     feed('<C-V>gg$')
     screen:expect([[
-      {2:aaaaaa}^                                            |
-      {2:bbbb   }                                           |
-      {2:cc     }                                           |
-      {0:~                                                 }|*2
-      {1:-- VISUAL BLOCK --}                                |
+      {17:aaaaaa}^                                            |
+      {17:bbbb   }                                           |
+      {17:cc     }                                           |
+      {1:~                                                 }|*2
+      {5:-- VISUAL BLOCK --}                                |
     ]])
 
     feed('<Esc>gg<C-V>G$')
     screen:expect([[
-      {2:aaaaaa }                                           |
-      {2:bbbb   }                                           |
-      {2:cc}^ {2:    }                                           |
-      {0:~                                                 }|*2
-      {1:-- VISUAL BLOCK --}                                |
+      {17:aaaaaa }                                           |
+      {17:bbbb   }                                           |
+      {17:cc}^ {17:    }                                           |
+      {1:~                                                 }|*2
+      {5:-- VISUAL BLOCK --}                                |
     ]])
   end)
 
@@ -57,9 +51,9 @@ describe('Visual highlight', function()
 
     screen:expect([[
       aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa^a|
-      {0:+}{2:aaaa}aaaaaa                                       |
-      {0:~                                                 }|*3
-      {1:-- VISUAL --}                                      |
+      {1:+}{17:aaaa}aaaaaa                                       |
+      {1:~                                                 }|*3
+      {5:-- VISUAL --}                                      |
     ]])
   end)
 end)

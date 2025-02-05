@@ -1,7 +1,9 @@
-local helpers = require('test.functional.helpers')(after_each)
-local clear, eval, eq = helpers.clear, helpers.eval, helpers.eq
-local feed, command = helpers.feed, helpers.command
-local exec_lua = helpers.exec_lua
+local t = require('test.testutil')
+local n = require('test.functional.testnvim')()
+
+local clear, eval, eq = n.clear, n.eval, t.eq
+local feed, command = n.feed, n.command
+local exec_lua = n.exec_lua
 
 describe('ModeChanged', function()
   before_each(function()
@@ -17,15 +19,15 @@ describe('ModeChanged', function()
     feed('i')
     eq({
       old_mode = 'nt',
-      new_mode = 't'
+      new_mode = 't',
     }, eval('g:event'))
     feed('<c-\\><c-n>')
     eq({
       old_mode = 't',
-      new_mode = 'nt'
+      new_mode = 'nt',
     }, eval('g:event'))
     eq(3, eval('g:count'))
-    command("bd!")
+    command('bd!')
 
     -- v:event is cleared after the autocommand is done
     eq({}, eval('v:event'))

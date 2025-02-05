@@ -13,7 +13,8 @@
 #include "nvim/indent.h"
 #include "nvim/indent_c.h"
 #include "nvim/macros_defs.h"
-#include "nvim/mark.h"
+#include "nvim/mark_defs.h"
+#include "nvim/math.h"
 #include "nvim/memline.h"
 #include "nvim/memory.h"
 #include "nvim/option.h"
@@ -23,6 +24,7 @@
 #include "nvim/search.h"
 #include "nvim/state_defs.h"
 #include "nvim/strings.h"
+#include "nvim/types_defs.h"
 #include "nvim/vim_defs.h"
 
 // Find result cache for cpp_baseclass
@@ -1196,7 +1198,7 @@ static int cin_is_cpp_baseclass(cpp_baseclass_cache_T *cached)
       s = line;
     }
     if (s == line) {
-      // don't recognize "case (foo):" as a baseclass */
+      // don't recognize "case (foo):" as a baseclass
       if (cin_iscase(s, false)) {
         break;
       }
@@ -1688,7 +1690,7 @@ void parse_cino(buf_T *buf)
       p++;
     }
     char *digits_start = p;   // remember where the digits start
-    int n = getdigits_int(&p, true, 0);
+    int64_t n = getdigits_int(&p, true, 0);
     divider = 0;
     if (*p == '.') {        // ".5s" means a fraction.
       fraction = atoi(++p);
@@ -1707,7 +1709,7 @@ void parse_cino(buf_T *buf)
       } else {
         n *= sw;
         if (divider) {
-          n += (sw * fraction + divider / 2) / divider;
+          n += ((int64_t)sw * fraction + divider / 2) / divider;
         }
       }
       p++;
@@ -1716,119 +1718,121 @@ void parse_cino(buf_T *buf)
       n = -n;
     }
 
+    n = trim_to_int(n);
+
     // When adding an entry here, also update the default 'cinoptions' in
     // doc/indent.txt, and add explanation for it!
     switch (*l) {
     case '>':
-      buf->b_ind_level = n;
+      buf->b_ind_level = (int)n;
       break;
     case 'e':
-      buf->b_ind_open_imag = n;
+      buf->b_ind_open_imag = (int)n;
       break;
     case 'n':
-      buf->b_ind_no_brace = n;
+      buf->b_ind_no_brace = (int)n;
       break;
     case 'f':
-      buf->b_ind_first_open = n;
+      buf->b_ind_first_open = (int)n;
       break;
     case '{':
-      buf->b_ind_open_extra = n;
+      buf->b_ind_open_extra = (int)n;
       break;
     case '}':
-      buf->b_ind_close_extra = n;
+      buf->b_ind_close_extra = (int)n;
       break;
     case '^':
-      buf->b_ind_open_left_imag = n;
+      buf->b_ind_open_left_imag = (int)n;
       break;
     case 'L':
-      buf->b_ind_jump_label = n;
+      buf->b_ind_jump_label = (int)n;
       break;
     case ':':
-      buf->b_ind_case = n;
+      buf->b_ind_case = (int)n;
       break;
     case '=':
-      buf->b_ind_case_code = n;
+      buf->b_ind_case_code = (int)n;
       break;
     case 'b':
-      buf->b_ind_case_break = n;
+      buf->b_ind_case_break = (int)n;
       break;
     case 'p':
-      buf->b_ind_param = n;
+      buf->b_ind_param = (int)n;
       break;
     case 't':
-      buf->b_ind_func_type = n;
+      buf->b_ind_func_type = (int)n;
       break;
     case '/':
-      buf->b_ind_comment = n;
+      buf->b_ind_comment = (int)n;
       break;
     case 'c':
-      buf->b_ind_in_comment = n;
+      buf->b_ind_in_comment = (int)n;
       break;
     case 'C':
-      buf->b_ind_in_comment2 = n;
+      buf->b_ind_in_comment2 = (int)n;
       break;
     case 'i':
-      buf->b_ind_cpp_baseclass = n;
+      buf->b_ind_cpp_baseclass = (int)n;
       break;
     case '+':
-      buf->b_ind_continuation = n;
+      buf->b_ind_continuation = (int)n;
       break;
     case '(':
-      buf->b_ind_unclosed = n;
+      buf->b_ind_unclosed = (int)n;
       break;
     case 'u':
-      buf->b_ind_unclosed2 = n;
+      buf->b_ind_unclosed2 = (int)n;
       break;
     case 'U':
-      buf->b_ind_unclosed_noignore = n;
+      buf->b_ind_unclosed_noignore = (int)n;
       break;
     case 'W':
-      buf->b_ind_unclosed_wrapped = n;
+      buf->b_ind_unclosed_wrapped = (int)n;
       break;
     case 'w':
-      buf->b_ind_unclosed_whiteok = n;
+      buf->b_ind_unclosed_whiteok = (int)n;
       break;
     case 'm':
-      buf->b_ind_matching_paren = n;
+      buf->b_ind_matching_paren = (int)n;
       break;
     case 'M':
-      buf->b_ind_paren_prev = n;
+      buf->b_ind_paren_prev = (int)n;
       break;
     case ')':
-      buf->b_ind_maxparen = n;
+      buf->b_ind_maxparen = (int)n;
       break;
     case '*':
-      buf->b_ind_maxcomment = n;
+      buf->b_ind_maxcomment = (int)n;
       break;
     case 'g':
-      buf->b_ind_scopedecl = n;
+      buf->b_ind_scopedecl = (int)n;
       break;
     case 'h':
-      buf->b_ind_scopedecl_code = n;
+      buf->b_ind_scopedecl_code = (int)n;
       break;
     case 'j':
-      buf->b_ind_java = n;
+      buf->b_ind_java = (int)n;
       break;
     case 'J':
-      buf->b_ind_js = n;
+      buf->b_ind_js = (int)n;
       break;
     case 'l':
-      buf->b_ind_keep_case_label = n;
+      buf->b_ind_keep_case_label = (int)n;
       break;
     case '#':
-      buf->b_ind_hash_comment = n;
+      buf->b_ind_hash_comment = (int)n;
       break;
     case 'N':
-      buf->b_ind_cpp_namespace = n;
+      buf->b_ind_cpp_namespace = (int)n;
       break;
     case 'k':
-      buf->b_ind_if_for_while = n;
+      buf->b_ind_if_for_while = (int)n;
       break;
     case 'E':
-      buf->b_ind_cpp_extern_c = n;
+      buf->b_ind_cpp_extern_c = (int)n;
       break;
     case 'P':
-      buf->b_ind_pragma = n;
+      buf->b_ind_pragma = (int)n;
       break;
     }
     if (*p == ',') {
@@ -3104,8 +3108,8 @@ int get_c_indent(void)
               } else {
                 // Found first unterminated line on a row, may
                 // line up with this line, remember its indent
-                //          100 +  //  NOLINT(whitespace/tab)
-                // ->       here;  //  NOLINT(whitespace/tab)
+                //          100 +
+                // ->       here;
                 l = get_cursor_line_ptr();
                 amount = cur_amount;
 
@@ -3418,9 +3422,7 @@ term_again:
       break;
     }
 
-    //
     // Skip preprocessor directives and blank lines.
-    //
     if (cin_ispreproc_cont(&l, &curwin->w_cursor.lnum, &amount)) {
       continue;
     }
@@ -3654,7 +3656,7 @@ static int find_match(int lookfor, linenr_T ourscope)
     if (cin_iselse(look)) {
       mightbeif = cin_skipcomment(look + 4);
       if (!cin_isif(mightbeif)) {
-        elselevel++;  // NOLINT(readability/braces)
+        elselevel++;
       }
       continue;
     }
@@ -3669,7 +3671,7 @@ static int find_match(int lookfor, linenr_T ourscope)
     // If it's an "if" decrement elselevel
     look = cin_skipcomment(get_cursor_line_ptr());
     if (cin_isif(look)) {
-      elselevel--;  // NOLINT(readability/braces)
+      elselevel--;
       // When looking for an "if" ignore "while"s that
       // get in the way.
       if (elselevel == 0 && lookfor == LOOKFOR_IF) {

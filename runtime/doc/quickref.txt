@@ -620,8 +620,7 @@ In Insert or Command-line mode:
 					  the help
 
 Short explanation of each option:		*option-list*
-'aleph'		  'al'	    ASCII code of the letter Aleph (Hebrew)
-'allowrevins'	  'ari'     allow CTRL-_ in Insert and Command-line mode
+'allowrevins'	  'ari'     allow CTRL-_ in Insert mode
 'ambiwidth'	  'ambw'    what to do with Unicode chars of ambiguous width
 'arabic'	  'arab'    for Arabic as a default second language
 'arabicshape'	  'arshape' do shaping for Arabic characters
@@ -706,6 +705,7 @@ Short explanation of each option:		*option-list*
 'fileignorecase'  'fic'     ignore case when using file names
 'filetype'	  'ft'	    type of file, used for autocommands
 'fillchars'	  'fcs'     characters to use for displaying special items
+'findfunc'	  'ffu'     function to be called for the |:find| command
 'fixendofline'	  'fixeol'  make sure last line in file has <EOL>
 'foldclose'	  'fcl'     close a fold when the cursor leaves it
 'foldcolumn'	  'fdc'     width of the column used to indicate folds
@@ -739,8 +739,6 @@ Short explanation of each option:		*option-list*
 'helplang'	  'hlg'     preferred help languages
 'hidden'	  'hid'     don't unload buffer when it is |abandon|ed
 'history'	  'hi'	    number of command-lines that are remembered
-'hkmap'		  'hk'	    Hebrew keyboard mapping
-'hkmapp'	  'hkp'     phonetic Hebrew keyboard mapping
 'hlsearch'	  'hls'     highlight matches with last search pattern
 'icon'			    let Vim set the text of the window icon
 'iconstring'		    string to use for the Vim icon text
@@ -889,6 +887,7 @@ Short explanation of each option:		*option-list*
 'switchbuf'	  'swb'     sets behavior when switching to another buffer
 'synmaxcol'	  'smc'     maximum column to find syntax items
 'syntax'	  'syn'     syntax to be loaded for current buffer
+'tabclose'	  'tcl'     which tab page to focus when closing a tab
 'tabline'	  'tal'     custom format for the console tab pages line
 'tabpagemax'	  'tpm'     maximum number of tab pages for |-p| and "tab all"
 'tabstop'	  'ts'	    number of spaces that <Tab> in file uses
@@ -901,6 +900,7 @@ Short explanation of each option:		*option-list*
 'tagstack'	  'tgst'    push tags onto the tag stack
 'term'			    name of the terminal
 'termbidi'	  'tbidi'   terminal takes care of bi-directionality
+'termguicolors'	  'tgc'     enable 24-bit RGB color in the TUI
 'textwidth'	  'tw'	    maximum width of text that is being inserted
 'thesaurus'	  'tsr'     list of thesaurus files for keyword completion
 'thesaurusfunc'	  'tsrfu'   function to be used for thesaurus completion
@@ -939,6 +939,7 @@ Short explanation of each option:		*option-list*
 'wildoptions'	  'wop'     specifies how command line completion is done
 'winaltkeys'	  'wak'     when the windows system handles ALT keys
 'window'	  'wi'	    nr of lines to scroll for CTRL-F and CTRL-B
+'winfixbuf'	  'wfb'     keep window focused on a single buffer
 'winfixheight'	  'wfh'     keep window height when opening/closing windows
 'winfixwidth'	  'wfw'     keep window width when opening/closing windows
 'winheight'	  'wh'	    minimum number of lines for the current window
@@ -1140,7 +1141,7 @@ Context-sensitive completion on the command-line:
 |-b|	-b		    binary mode
 |-l|	-l		    lisp mode
 |-A|	-A		    Arabic mode ('arabic' is set)
-|-H|	-H		    Hebrew mode ('hkmap' and 'rightleft' are set)
+|-H|	-H		    Hebrew mode (Hebrew keymap & 'rightleft' are set)
 |-V|	-V		    Verbose, give informative messages
 |-r|	-r		    give list of swap files
 |-r|	-r {file} ..	    recover aborted edit session

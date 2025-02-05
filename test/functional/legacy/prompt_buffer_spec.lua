@@ -1,13 +1,16 @@
-local helpers = require('test.functional.helpers')(after_each)
+local t = require('test.testutil')
+local n = require('test.functional.testnvim')()
 local Screen = require('test.functional.ui.screen')
-local feed = helpers.feed
-local source = helpers.source
-local clear = helpers.clear
-local command = helpers.command
-local poke_eventloop = helpers.poke_eventloop
-local meths = helpers.meths
-local eq = helpers.eq
-local neq = helpers.neq
+
+local feed = n.feed
+local source = n.source
+local clear = n.clear
+local command = n.command
+local expect = n.expect
+local poke_eventloop = n.poke_eventloop
+local api = n.api
+local eq = t.eq
+local neq = t.neq
 
 describe('prompt buffer', function()
   local screen
@@ -15,7 +18,6 @@ describe('prompt buffer', function()
   before_each(function()
     clear()
     screen = Screen.new(25, 10)
-    screen:attach()
     command('set laststatus=0 nohidden')
   end)
 
@@ -57,36 +59,32 @@ describe('prompt buffer', function()
     ]])
     screen:expect([[
       cmd: ^                    |
-      ~                        |*3
-      [Prompt] [+]             |
+      {1:~                        }|*3
+      {3:[Prompt] [+]             }|
       other buffer             |
-      ~                        |*3
-      -- INSERT --             |
+      {1:~                        }|*3
+      {5:-- INSERT --}             |
     ]])
   end
-
-  after_each(function()
-    screen:detach()
-  end)
 
   -- oldtest: Test_prompt_basic()
   it('works', function()
     source_script()
-    feed("hello\n")
+    feed('hello\n')
     screen:expect([[
       cmd: hello               |
       Command: "hello"         |
       Result: "hello"          |
       cmd: ^                    |
-      [Prompt]                 |
+      {3:[Prompt]                 }|
       other buffer             |
-      ~                        |*3
-      -- INSERT --             |
+      {1:~                        }|*3
+      {5:-- INSERT --}             |
     ]])
-    feed("exit\n")
+    feed('exit\n')
     screen:expect([[
       ^other buffer             |
-      ~                        |*8
+      {1:~                        }|*8
                                |
     ]])
   end)
@@ -94,46 +92,46 @@ describe('prompt buffer', function()
   -- oldtest: Test_prompt_editing()
   it('editing', function()
     source_script()
-    feed("hello<BS><BS>")
+    feed('hello<BS><BS>')
     screen:expect([[
       cmd: hel^                 |
-      ~                        |*3
-      [Prompt] [+]             |
+      {1:~                        }|*3
+      {3:[Prompt] [+]             }|
       other buffer             |
-      ~                        |*3
-      -- INSERT --             |
+      {1:~                        }|*3
+      {5:-- INSERT --}             |
     ]])
-    feed("<Left><Left><Left><BS>-")
+    feed('<Left><Left><Left><BS>-')
     screen:expect([[
       cmd: -^hel                |
-      ~                        |*3
-      [Prompt] [+]             |
+      {1:~                        }|*3
+      {3:[Prompt] [+]             }|
       other buffer             |
-      ~                        |*3
-      -- INSERT --             |
+      {1:~                        }|*3
+      {5:-- INSERT --}             |
     ]])
-    feed("<C-O>lz")
+    feed('<C-O>lz')
     screen:expect([[
       cmd: -hz^el               |
-      ~                        |*3
-      [Prompt] [+]             |
+      {1:~                        }|*3
+      {3:[Prompt] [+]             }|
       other buffer             |
-      ~                        |*3
-      -- INSERT --             |
+      {1:~                        }|*3
+      {5:-- INSERT --}             |
     ]])
-    feed("<End>x")
+    feed('<End>x')
     screen:expect([[
       cmd: -hzelx^              |
-      ~                        |*3
-      [Prompt] [+]             |
+      {1:~                        }|*3
+      {3:[Prompt] [+]             }|
       other buffer             |
-      ~                        |*3
-      -- INSERT --             |
+      {1:~                        }|*3
+      {5:-- INSERT --}             |
     ]])
-    feed("<C-U>exit\n")
+    feed('<C-U>exit\n')
     screen:expect([[
       ^other buffer             |
-      ~                        |*8
+      {1:~                        }|*8
                                |
     ]])
   end)
@@ -141,31 +139,31 @@ describe('prompt buffer', function()
   -- oldtest: Test_prompt_switch_windows()
   it('switch windows', function()
     source_script()
-    feed("<C-O>:call SwitchWindows()<CR>")
-    screen:expect{grid=[[
+    feed('<C-O>:call SwitchWindows()<CR>')
+    screen:expect([[
       cmd:                     |
-      ~                        |*3
-      [Prompt] [+]             |
+      {1:~                        }|*3
+      {2:[Prompt] [+]             }|
       ^other buffer             |
-      ~                        |*3
+      {1:~                        }|*3
                                |
-    ]]}
-    feed("<C-O>:call SwitchWindows()<CR>")
+    ]])
+    feed('<C-O>:call SwitchWindows()<CR>')
     screen:expect([[
       cmd: ^                    |
-      ~                        |*3
-      [Prompt] [+]             |
+      {1:~                        }|*3
+      {3:[Prompt] [+]             }|
       other buffer             |
-      ~                        |*3
-      -- INSERT --             |
+      {1:~                        }|*3
+      {5:-- INSERT --}             |
     ]])
-    feed("<Esc>")
+    feed('<Esc>')
     screen:expect([[
       cmd:^                     |
-      ~                        |*3
-      [Prompt] [+]             |
+      {1:~                        }|*3
+      {3:[Prompt] [+]             }|
       other buffer             |
-      ~                        |*3
+      {1:~                        }|*3
                                |
     ]])
   end)
@@ -178,12 +176,12 @@ describe('prompt buffer', function()
       call timer_start(0, {-> nvim_buf_set_lines(s:buf, -1, -1, 0, ['walrus'])})
     ]]
     poke_eventloop()
-    eq({ mode = 'i', blocking = false }, meths.get_mode())
+    eq({ mode = 'i', blocking = false }, api.nvim_get_mode())
   end)
 
   -- oldtest: Test_prompt_appending_while_hidden()
   it('accessing hidden prompt buffer does not start insert mode', function()
-    local prev_win = meths.get_current_win()
+    local prev_win = api.nvim_get_current_win()
     source([[
       new prompt
       set buftype=prompt
@@ -203,16 +201,48 @@ describe('prompt buffer', function()
       endfunc
     ]])
     feed('asomething<CR>')
-    eq('something', meths.get_var('entered'))
-    neq(prev_win, meths.get_current_win())
+    eq('something', api.nvim_get_var('entered'))
+    neq(prev_win, api.nvim_get_current_win())
     feed('exit<CR>')
-    eq(prev_win, meths.get_current_win())
-    eq({ mode = 'n', blocking = false }, meths.get_mode())
+    eq(prev_win, api.nvim_get_current_win())
+    eq({ mode = 'n', blocking = false }, api.nvim_get_mode())
     command('call DoAppend()')
-    eq({ mode = 'n', blocking = false }, meths.get_mode())
+    eq({ mode = 'n', blocking = false }, api.nvim_get_mode())
     feed('i')
-    eq({ mode = 'i', blocking = false }, meths.get_mode())
+    eq({ mode = 'i', blocking = false }, api.nvim_get_mode())
     command('call DoAppend()')
-    eq({ mode = 'i', blocking = false }, meths.get_mode())
+    eq({ mode = 'i', blocking = false }, api.nvim_get_mode())
+  end)
+
+  -- oldtest: Test_prompt_leave_modify_hidden()
+  it('modifying hidden buffer does not prevent prompt buffer mode change', function()
+    source([[
+      file hidden
+      set bufhidden=hide
+      enew
+      new prompt
+      set buftype=prompt
+
+      inoremap <buffer> w <Cmd>wincmd w<CR>
+      inoremap <buffer> q <Cmd>bwipe!<CR>
+      autocmd BufLeave prompt call appendbufline('hidden', '$', 'Leave')
+      autocmd BufEnter prompt call appendbufline('hidden', '$', 'Enter')
+      autocmd BufWinLeave prompt call appendbufline('hidden', '$', 'Close')
+    ]])
+    feed('a')
+    eq({ mode = 'i', blocking = false }, api.nvim_get_mode())
+    feed('w')
+    eq({ mode = 'n', blocking = false }, api.nvim_get_mode())
+    feed('<C-W>w')
+    eq({ mode = 'i', blocking = false }, api.nvim_get_mode())
+    feed('q')
+    eq({ mode = 'n', blocking = false }, api.nvim_get_mode())
+    command('bwipe!')
+    expect([[
+
+      Leave
+      Enter
+      Leave
+      Close]])
   end)
 end)

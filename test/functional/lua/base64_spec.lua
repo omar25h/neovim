@@ -1,9 +1,11 @@
-local helpers = require('test.functional.helpers')(after_each)
-local clear = helpers.clear
-local exec_lua = helpers.exec_lua
-local eq = helpers.eq
-local pcall_err = helpers.pcall_err
-local matches = helpers.matches
+local t = require('test.testutil')
+local n = require('test.functional.testnvim')()
+
+local clear = n.clear
+local exec_lua = n.exec_lua
+local eq = t.eq
+local pcall_err = t.pcall_err
+local matches = t.matches
 
 describe('vim.base64', function()
   before_each(clear)
@@ -42,6 +44,7 @@ describe('vim.base64', function()
         ̦H̬̤̗̤͝e͜ ̜̥̝̻͍̟́w̕h̖̯͓o̝͙̖͎̱̮ ҉̺̙̞̟͈W̷̼̭a̺̪͍į͈͕̭͙̯̜t̶̼̮s̘͙͖̕ ̠̫̠B̻͍͙͉̳ͅe̵h̵̬͇̫͙i̹͓̳̳̮͎̫̕n͟d̴̪̜̖ ̰͉̩͇͙̲͞ͅT͖̼͓̪͢h͏͓̮̻e̬̝̟ͅ ̤̹̝W͙̞̝͔͇͝ͅa͏͓͔̹̼̣l̴͔̰̤̟͔ḽ̫.͕
         Z̮̞̠͙͔ͅḀ̗̞͈̻̗Ḷ͙͎̯̹̞͓G̻O̭̗̮
       ]],
+      'Hello\0world',
     }
 
     for _, v in ipairs(values) do
@@ -49,12 +52,15 @@ describe('vim.base64', function()
     end
 
     -- Explicitly check encoded output
-    eq('VGhlIHF1aWNrIGJyb3duIGZveCBqdW1wcyBvdmVyIHRoZSBsYXp5IGRvZwo=', encode('The quick brown fox jumps over the lazy dog\n'))
+    eq(
+      'VGhlIHF1aWNrIGJyb3duIGZveCBqdW1wcyBvdmVyIHRoZSBsYXp5IGRvZwo=',
+      encode('The quick brown fox jumps over the lazy dog\n')
+    )
 
     -- Test vectors from rfc4648
     local rfc4648 = {
       { '', '' },
-      { 'f', 'Zg==', },
+      { 'f', 'Zg==' },
       { 'fo', 'Zm8=' },
       { 'foo', 'Zm9v' },
       { 'foob', 'Zm9vYg==' },

@@ -1,3 +1,7 @@
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
+  set(CMAKE_SYSTEM_PROCESSOR arm64)
+endif()
+
 set(CPACK_PACKAGE_NAME "Neovim")
 set(CPACK_PACKAGE_VENDOR "neovim.io")
 set(CPACK_PACKAGE_FILE_NAME "nvim")
@@ -38,17 +42,22 @@ if(WIN32)
   # Create start menu and desktop shortcuts
   set(CPACK_WIX_PROGRAM_MENU_FOLDER "${CPACK_PACKAGE_NAME}")
   set(CPACK_PACKAGE_EXECUTABLES "nvim" "Neovim")
+  set(CPACK_WIX_INSTALL_SCOPE "perMachine")
+
+  set(CPACK_WIX_UI_REF "WixUI_CustomInstallDir")
+  list(APPEND CPACK_WIX_EXTRA_SOURCES ${CMAKE_CURRENT_LIST_DIR}/WixUI_CustomInstallDir.wxs)
+  list(APPEND CPACK_WIX_EXTRA_SOURCES ${CMAKE_CURRENT_LIST_DIR}/CustomInstallDirDlg.wxs)
 
   # We use a wix patch to add further options to the installer.
   # See: https://cmake.org/cmake/help/v3.7/module/CPackWIX.html#variable:CPACK_WIX_PATCH_FILE
   list(APPEND CPACK_WIX_EXTENSIONS WixUtilExtension)
   list(APPEND CPACK_WIX_PATCH_FILE ${CMAKE_CURRENT_LIST_DIR}/WixPatch.xml)
 elseif(APPLE)
-  set(CPACK_PACKAGE_FILE_NAME "nvim-macos")
+  set(CPACK_PACKAGE_FILE_NAME "nvim-macos-${CMAKE_SYSTEM_PROCESSOR}")
   set(CPACK_GENERATOR TGZ)
   set(CPACK_PACKAGE_ICON ${CMAKE_CURRENT_LIST_DIR}/neovim.icns)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  set(CPACK_PACKAGE_FILE_NAME "nvim-linux64")
+  set(CPACK_PACKAGE_FILE_NAME "nvim-linux-${CMAKE_SYSTEM_PROCESSOR}")
   set(CPACK_GENERATOR TGZ DEB)
   set(CPACK_DEBIAN_PACKAGE_NAME "Neovim") # required
   set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Neovim.io") # required

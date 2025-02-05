@@ -9,12 +9,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h>
+#include <uv.h>
 
 #include "auto/config.h"
+#include "nvim/api/private/defs.h"
+#include "nvim/api/private/helpers.h"
 #include "nvim/arglist.h"
 #include "nvim/ascii_defs.h"
 #include "nvim/autocmd.h"
+#include "nvim/autocmd_defs.h"
 #include "nvim/buffer.h"
 #include "nvim/buffer_defs.h"
 #include "nvim/change.h"
@@ -26,24 +29,29 @@
 #include "nvim/digraph.h"
 #include "nvim/drawscreen.h"
 #include "nvim/edit.h"
+#include "nvim/errors.h"
 #include "nvim/eval.h"
 #include "nvim/eval/typval.h"
+#include "nvim/eval/typval_defs.h"
 #include "nvim/eval/userfunc.h"
 #include "nvim/event/loop.h"
+#include "nvim/event/multiqueue.h"
 #include "nvim/ex_cmds.h"
 #include "nvim/ex_cmds2.h"
 #include "nvim/ex_cmds_defs.h"
 #include "nvim/ex_docmd.h"
 #include "nvim/ex_eval.h"
+#include "nvim/ex_eval_defs.h"
 #include "nvim/ex_getln.h"
 #include "nvim/file_search.h"
 #include "nvim/fileio.h"
 #include "nvim/fold.h"
 #include "nvim/garray.h"
+#include "nvim/garray_defs.h"
 #include "nvim/getchar.h"
-#include "nvim/gettext.h"
+#include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
-#include "nvim/highlight.h"
+#include "nvim/highlight_defs.h"
 #include "nvim/highlight_group.h"
 #include "nvim/input.h"
 #include "nvim/keycodes.h"
@@ -51,37 +59,47 @@
 #include "nvim/macros_defs.h"
 #include "nvim/main.h"
 #include "nvim/mark.h"
+#include "nvim/mark_defs.h"
 #include "nvim/mbyte.h"
 #include "nvim/memline.h"
+#include "nvim/memline_defs.h"
 #include "nvim/memory.h"
 #include "nvim/message.h"
 #include "nvim/mouse.h"
 #include "nvim/move.h"
 #include "nvim/normal.h"
+#include "nvim/normal_defs.h"
 #include "nvim/ops.h"
 #include "nvim/option.h"
+#include "nvim/option_defs.h"
 #include "nvim/option_vars.h"
 #include "nvim/optionstr.h"
 #include "nvim/os/fs.h"
 #include "nvim/os/input.h"
 #include "nvim/os/os.h"
+#include "nvim/os/os_defs.h"
 #include "nvim/os/shell.h"
 #include "nvim/path.h"
+#include "nvim/plines.h"
 #include "nvim/popupmenu.h"
 #include "nvim/pos_defs.h"
 #include "nvim/profile.h"
 #include "nvim/quickfix.h"
 #include "nvim/regexp.h"
+#include "nvim/regexp_defs.h"
 #include "nvim/runtime.h"
+#include "nvim/runtime_defs.h"
 #include "nvim/search.h"
 #include "nvim/shada.h"
 #include "nvim/state.h"
+#include "nvim/state_defs.h"
 #include "nvim/statusline.h"
 #include "nvim/strings.h"
 #include "nvim/tag.h"
 #include "nvim/types_defs.h"
 #include "nvim/ui.h"
 #include "nvim/undo.h"
+#include "nvim/undo_defs.h"
 #include "nvim/usercmd.h"
 #include "nvim/vim_defs.h"
 #include "nvim/window.h"
@@ -127,7 +145,7 @@ struct loop_cookie {
   int current_line;                     // last read line from growarray
   int repeating;                        // true when looping a second time
   // When "repeating" is false use "getline" and "cookie" to get lines
-  char *(*getline)(int, void *, int, bool);
+  LineGetter lc_getline;
   void *cookie;
 };
 
@@ -189,14 +207,46 @@ static void restore_dbg_stuff(struct dbg_stuff *dsp)
   trylevel = dsp->trylevel;
   force_abort = dsp->force_abort;
   caught_stack = dsp->caught_stack;
-  (void)v_exception(dsp->vv_exception);
-  (void)v_throwpoint(dsp->vv_throwpoint);
+  v_exception(dsp->vv_exception);
+  v_throwpoint(dsp->vv_throwpoint);
   did_emsg = dsp->did_emsg;
   got_int = dsp->got_int;
   did_throw = dsp->did_throw;
   need_rethrow = dsp->need_rethrow;
   check_cstack = dsp->check_cstack;
   current_exception = dsp->current_exception;
+}
+
+/// Check if ffname differs from fnum.
+/// fnum is a buffer number. 0 == current buffer, 1-or-more must be a valid buffer ID.
+/// ffname is a full path to where a buffer lives on-disk or would live on-disk.
+static bool is_other_file(int fnum, char *ffname)
+{
+  if (fnum != 0) {
+    if (fnum == curbuf->b_fnum) {
+      return false;
+    }
+
+    return true;
+  }
+
+  if (ffname == NULL) {
+    return true;
+  }
+
+  if (*ffname == NUL) {
+    return false;
+  }
+
+  if (!curbuf->file_id_valid
+      && curbuf->b_sfname != NULL
+      && *curbuf->b_sfname != NUL) {
+    // This occurs with unsaved buffers. In which case `ffname`
+    // actually corresponds to curbuf->b_sfname
+    return path_fnamecmp(ffname, curbuf->b_sfname) != 0;
+  }
+
+  return otherfile(ffname);
 }
 
 /// Repeatedly get commands for Ex mode, until the ":vi" command is given.
@@ -292,6 +342,33 @@ static void msg_verbose_cmd(linenr_T lnum, char *cmd)
   no_wait_return--;
 }
 
+static int cmdline_call_depth = 0;  ///< recursiveness
+
+/// Start executing an Ex command line.
+///
+/// @return  FAIL if too recursive, OK otherwise.
+static int do_cmdline_start(void)
+{
+  assert(cmdline_call_depth >= 0);
+  // It's possible to create an endless loop with ":execute", catch that
+  // here.  The value of 200 allows nested function calls, ":source", etc.
+  // Allow 200 or 'maxfuncdepth', whatever is larger.
+  if (cmdline_call_depth >= 200 && cmdline_call_depth >= p_mfd) {
+    return FAIL;
+  }
+  cmdline_call_depth++;
+  start_batch_changes();
+  return OK;
+}
+
+/// End executing an Ex command line.
+static void do_cmdline_end(void)
+{
+  cmdline_call_depth--;
+  assert(cmdline_call_depth >= 0);
+  end_batch_changes();
+}
+
 /// Execute a simple command line.  Used for translated commands like "*".
 int do_cmdline_cmd(const char *cmd)
 {
@@ -342,7 +419,6 @@ int do_cmdline(char *cmdline, LineGetter fgetline, void *cookie, int flags)
   char *(*cmd_getline)(int, void *, int, bool);
   void *cmd_cookie;
   struct loop_cookie cmd_loop_cookie;
-  static int call_depth = 0;            // recursiveness
 
   // For every pair of do_cmdline()/do_one_cmd() calls, use an extra memory
   // location for storing error messages to be converted to an exception.
@@ -354,10 +430,7 @@ int do_cmdline(char *cmdline, LineGetter fgetline, void *cookie, int flags)
   msg_list = &private_msg_list;
   private_msg_list = NULL;
 
-  // It's possible to create an endless loop with ":execute", catch that
-  // here.  The value of 200 allows nested function calls, ":source", etc.
-  // Allow 200 or 'maxfuncdepth', whatever is larger.
-  if (call_depth >= 200 && call_depth >= p_mfd) {
+  if (do_cmdline_start() == FAIL) {
     emsg(_(e_command_too_recursive));
     // When converting to an exception, we do not include the command name
     // since this is not an error of the specific command.
@@ -365,8 +438,6 @@ int do_cmdline(char *cmdline, LineGetter fgetline, void *cookie, int flags)
     msg_list = saved_msg_list;
     return FAIL;
   }
-  call_depth++;
-  start_batch_changes();
 
   ga_init(&lines_ga, (int)sizeof(wcmd_T), 10);
 
@@ -552,7 +623,7 @@ int do_cmdline(char *cmdline, LineGetter fgetline, void *cookie, int flags)
       cmd_cookie = (void *)&cmd_loop_cookie;
       cmd_loop_cookie.lines_gap = &lines_ga;
       cmd_loop_cookie.current_line = current_line;
-      cmd_loop_cookie.getline = fgetline;
+      cmd_loop_cookie.lc_getline = fgetline;
       cmd_loop_cookie.cookie = cookie;
       cmd_loop_cookie.repeating = (current_line < lines_ga.ga_len);
 
@@ -709,7 +780,7 @@ int do_cmdline(char *cmdline, LineGetter fgetline, void *cookie, int flags)
     }
 
     // Convert an interrupt to an exception if appropriate.
-    (void)do_intthrow(&cstack);
+    do_intthrow(&cstack);
 
     // Continue executing command lines when:
     // - no CTRL-C typed, no aborting error, no exception thrown or try
@@ -867,8 +938,7 @@ int do_cmdline(char *cmdline, LineGetter fgetline, void *cookie, int flags)
 
   did_endif = false;    // in case do_cmdline used recursively
 
-  call_depth--;
-  end_batch_changes();
+  do_cmdline_end();
   return retval;
 }
 
@@ -902,14 +972,17 @@ void handle_did_throw(void)
   current_exception->throw_name = NULL;
 
   discard_current_exception();              // uses IObuff if 'verbose'
-  suppress_errthrow = true;
-  force_abort = true;
-  msg_ext_set_kind("emsg");  // kind=emsg for :throw, exceptions. #9993
+
+  // If "silent!" is active the uncaught exception is not fatal.
+  if (emsg_silent == 0) {
+    suppress_errthrow = true;
+    force_abort = true;
+  }
 
   if (messages != NULL) {
     do {
       msglist_T *next = messages->next;
-      emsg_multiline(messages->msg, messages->multiline);
+      emsg_multiline(messages->msg, "emsg", HLF_E, messages->multiline);
       xfree(messages->msg);
       xfree(messages->sfile);
       xfree(messages);
@@ -934,10 +1007,10 @@ static char *get_loop_line(int c, void *cookie, int indent, bool do_concat)
     }
     char *line;
     // First time inside the ":while"/":for": get line normally.
-    if (cp->getline == NULL) {
+    if (cp->lc_getline == NULL) {
       line = getcmdline(c, 0, indent, do_concat);
     } else {
-      line = cp->getline(c, cp->cookie, indent, do_concat);
+      line = cp->lc_getline(c, cp->cookie, indent, do_concat);
     }
     if (line != NULL) {
       store_loop_line(cp->lines_gap, line);
@@ -974,7 +1047,7 @@ bool getline_equal(LineGetter fgetline, void *cookie, LineGetter func)
   LineGetter gp = fgetline;
   struct loop_cookie *cp = (struct loop_cookie *)cookie;
   while (gp == get_loop_line) {
-    gp = cp->getline;
+    gp = cp->lc_getline;
     cp = cp->cookie;
   }
   return gp == func;
@@ -992,7 +1065,7 @@ void *getline_cookie(LineGetter fgetline, void *cookie)
   LineGetter gp = fgetline;
   struct loop_cookie *cp = (struct loop_cookie *)cookie;
   while (gp == get_loop_line) {
-    gp = cp->getline;
+    gp = cp->lc_getline;
     cp = cp->cookie;
   }
   return cp;
@@ -1004,7 +1077,6 @@ void *getline_cookie(LineGetter fgetline, void *cookie)
 /// @return  the buffer number.
 static int compute_buffer_local_count(cmd_addr_T addr_type, linenr_T lnum, int offset)
 {
-  buf_T *nextbuf;
   int count = offset;
 
   buf_T *buf = firstbuf;
@@ -1013,7 +1085,7 @@ static int compute_buffer_local_count(cmd_addr_T addr_type, linenr_T lnum, int o
   }
   while (count != 0) {
     count += (count < 0) ? 1 : -1;
-    nextbuf = (offset < 0) ? buf->b_prev : buf->b_next;
+    buf_T *nextbuf = (offset < 0) ? buf->b_prev : buf->b_next;
     if (nextbuf == NULL) {
       break;
     }
@@ -1032,7 +1104,7 @@ static int compute_buffer_local_count(cmd_addr_T addr_type, linenr_T lnum, int o
   // we might have gone too far, last buffer is not loaded
   if (addr_type == ADDR_LOADED_BUFFERS) {
     while (buf->b_ml.ml_mfp == NULL) {
-      nextbuf = (offset >= 0) ? buf->b_prev : buf->b_next;
+      buf_T *nextbuf = (offset >= 0) ? buf->b_prev : buf->b_next;
       if (nextbuf == NULL) {
         break;
       }
@@ -1336,7 +1408,11 @@ void set_cmd_count(exarg_T *eap, linenr_T count, bool validate)
     }
   } else {
     eap->line1 = eap->line2;
-    eap->line2 += count - 1;
+    if (eap->line2 >= INT32_MAX - (count - 1)) {
+      eap->line2 = INT32_MAX;
+    } else {
+      eap->line2 += count - 1;
+    }
     eap->addr_count++;
     // Be vi compatible: no error message for out of range.
     if (validate && eap->line2 > curbuf->b_ml.ml_line_count) {
@@ -1354,7 +1430,7 @@ static int parse_count(exarg_T *eap, const char **errormsg, bool validate)
   if ((eap->argt & EX_COUNT) && ascii_isdigit(*eap->arg)
       && (!(eap->argt & EX_BUFNAME) || *(p = skipdigits(eap->arg + 1)) == NUL
           || ascii_iswhite(*p))) {
-    linenr_T n = getdigits_int32(&eap->arg, false, -1);
+    linenr_T n = getdigits_int32(&eap->arg, false, INT32_MAX);
     eap->arg = skipwhite(eap->arg);
 
     if (eap->args != NULL) {
@@ -1419,7 +1495,7 @@ bool parse_cmdline(char *cmdline, exarg_T *eap, CmdParseInfo *cmdinfo, const cha
     .line2 = 1,
     .cmd = cmdline,
     .cmdlinep = &cmdline,
-    .getline = NULL,
+    .ea_getline = NULL,
     .cookie = NULL,
   };
 
@@ -1617,9 +1693,7 @@ static int execute_cmd0(int *retv, exarg_T *eap, const char **errormsg, bool pre
   // ":silent! try" was used, it should only apply to :try itself.
   if (eap->cmdidx == CMD_try && cmdmod.cmod_did_esilent > 0) {
     emsg_silent -= cmdmod.cmod_did_esilent;
-    if (emsg_silent < 0) {
-      emsg_silent = 0;
-    }
+    emsg_silent = MAX(emsg_silent, 0);
     cmdmod.cmod_did_esilent = 0;
   }
 
@@ -1652,15 +1726,13 @@ static int execute_cmd0(int *retv, exarg_T *eap, const char **errormsg, bool pre
 /// @param preview Execute command preview callback instead of actual command
 int execute_cmd(exarg_T *eap, CmdParseInfo *cmdinfo, bool preview)
 {
-  const char *errormsg = NULL;
   int retv = 0;
+  if (do_cmdline_start() == FAIL) {
+    emsg(_(e_command_too_recursive));
+    return retv;
+  }
 
-#undef ERROR
-#define ERROR(msg) \
-  do { \
-    errormsg = msg; \
-    goto end; \
-  } while (0)
+  const char *errormsg = NULL;
 
   cmdmod_T save_cmdmod = cmdmod;
   cmdmod = cmdinfo->cmdmod;
@@ -1671,16 +1743,19 @@ int execute_cmd(exarg_T *eap, CmdParseInfo *cmdinfo, bool preview)
   if (!MODIFIABLE(curbuf) && (eap->argt & EX_MODIFY)
       // allow :put in terminals
       && !(curbuf->terminal && eap->cmdidx == CMD_put)) {
-    ERROR(_(e_modifiable));
+    errormsg = _(e_modifiable);
+    goto end;
   }
   if (!IS_USER_CMDIDX(eap->cmdidx)) {
     if (cmdwin_type != 0 && !(eap->argt & EX_CMDWIN)) {
       // Command not allowed in the command line window
-      ERROR(_(e_cmdwin));
+      errormsg = _(e_cmdwin);
+      goto end;
     }
     if (text_locked() && !(eap->argt & EX_LOCK_OK)) {
       // Command not allowed when text is locked
-      ERROR(_(get_text_locked_msg()));
+      errormsg = _(get_text_locked_msg());
+      goto end;
     }
   }
   // Disallow editing another buffer when "curbuf->b_ro_locked" is set.
@@ -1702,8 +1777,8 @@ int execute_cmd(exarg_T *eap, CmdParseInfo *cmdinfo, bool preview)
       && eap->addr_type == ADDR_LINES) {
     // Put the first line at the start of a closed fold, put the last line
     // at the end of a closed fold.
-    (void)hasFolding(eap->line1, &eap->line1, NULL);
-    (void)hasFolding(eap->line2, NULL, &eap->line2);
+    hasFolding(curwin, eap->line1, &eap->line1, NULL);
+    hasFolding(curwin, eap->line2, NULL, &eap->line2);
   }
 
   // Use first argument as count when possible
@@ -1721,11 +1796,13 @@ end:
   if (errormsg != NULL && *errormsg != NUL) {
     emsg(errormsg);
   }
+
   // Undo command modifiers
   undo_cmdmod(&cmdmod);
   cmdmod = save_cmdmod;
+
+  do_cmdline_end();
   return retv;
-#undef ERROR
 }
 
 static void profile_cmd(const exarg_T *eap, cstack_T *cstack, LineGetter fgetline, void *cookie)
@@ -1921,7 +1998,7 @@ static char *do_one_cmd(char **cmdlinep, int flags, cstack_T *cstack, LineGetter
   // The "ea" structure holds the arguments that can be used.
   ea.cmd = *cmdlinep;
   ea.cmdlinep = cmdlinep;
-  ea.getline = fgetline;
+  ea.ea_getline = fgetline;
   ea.cookie = cookie;
   ea.cstack = cstack;
 
@@ -1957,7 +2034,7 @@ static char *do_one_cmd(char **cmdlinep, int flags, cstack_T *cstack, LineGetter
   }
   if (!ea.skip && got_int) {
     ea.skip = true;
-    (void)do_intthrow(cstack);
+    do_intthrow(cstack);
   }
 
   // 4. Parse a range specifier of the form: addr [,addr] [;addr] ..
@@ -1997,29 +2074,8 @@ static char *do_one_cmd(char **cmdlinep, int flags, cstack_T *cstack, LineGetter
     if (ea.skip) {  // skip this if inside :if
       goto doend;
     }
-    if (*ea.cmd == '|' || (exmode_active && ea.line1 != ea.line2)) {
-      ea.cmdidx = CMD_print;
-      ea.argt = EX_RANGE | EX_COUNT | EX_TRLBAR;
-      if ((errormsg = invalid_range(&ea)) == NULL) {
-        correct_range(&ea);
-        ex_print(&ea);
-      }
-    } else if (ea.addr_count != 0) {
-      if (ea.line2 > curbuf->b_ml.ml_line_count) {
-        ea.line2 = curbuf->b_ml.ml_line_count;
-      }
-
-      if (ea.line2 < 0) {
-        errormsg = _(e_invrange);
-      } else {
-        if (ea.line2 == 0) {
-          curwin->w_cursor.lnum = 1;
-        } else {
-          curwin->w_cursor.lnum = ea.line2;
-        }
-        beginline(BL_SOL | BL_FIX);
-      }
-    }
+    assert(errormsg == NULL);
+    errormsg = ex_range_without_command(&ea);
     goto doend;
   }
 
@@ -2145,7 +2201,7 @@ static char *do_one_cmd(char **cmdlinep, int flags, cstack_T *cstack, LineGetter
           errormsg = _("E493: Backwards range given");
           goto doend;
         }
-        if (ask_yesno(_("Backwards range given, OK to swap"), false) != 'y') {
+        if (ask_yesno(_("Backwards range given, OK to swap")) != 'y') {
           goto doend;
         }
       }
@@ -2169,8 +2225,8 @@ static char *do_one_cmd(char **cmdlinep, int flags, cstack_T *cstack, LineGetter
       && ea.addr_type == ADDR_LINES) {
     // Put the first line at the start of a closed fold, put the last line
     // at the end of a closed fold.
-    (void)hasFolding(ea.line1, &ea.line1, NULL);
-    (void)hasFolding(ea.line2, NULL, &ea.line2);
+    hasFolding(curwin, ea.line1, &ea.line1, NULL);
+    hasFolding(curwin, ea.line2, NULL, &ea.line2);
   }
 
   // For the ":make" and ":grep" commands we insert the 'makeprg'/'grepprg'
@@ -2365,6 +2421,40 @@ char *ex_errmsg(const char *const msg, const char *const arg)
   return ex_error_buf;
 }
 
+/// The "+" string used in place of an empty command in Ex mode.
+/// This string is used in pointer comparison.
+static char exmode_plus[] = "+";
+
+/// Handle a range without a command.
+/// Returns an error message on failure.
+static char *ex_range_without_command(exarg_T *eap)
+{
+  char *errormsg = NULL;
+
+  if (*eap->cmd == '|' || (exmode_active && eap->cmd != exmode_plus + 1)) {
+    eap->cmdidx = CMD_print;
+    eap->argt = EX_RANGE | EX_COUNT | EX_TRLBAR;
+    if ((errormsg = invalid_range(eap)) == NULL) {
+      correct_range(eap);
+      ex_print(eap);
+    }
+  } else if (eap->addr_count != 0) {
+    eap->line2 = MIN(eap->line2, curbuf->b_ml.ml_line_count);
+
+    if (eap->line2 < 0) {
+      errormsg = _(e_invrange);
+    } else {
+      if (eap->line2 == 0) {
+        curwin->w_cursor.lnum = 1;
+      } else {
+        curwin->w_cursor.lnum = eap->line2;
+      }
+      beginline(BL_SOL | BL_FIX);
+    }
+  }
+  return errormsg;
+}
+
 /// Parse and skip over command modifiers:
 /// - update eap->cmd
 /// - store flags in "cmod".
@@ -2396,9 +2486,9 @@ int parse_command_modifiers(exarg_T *eap, const char **errormsg, cmdmod_T *cmod,
 
     // in ex mode, an empty line works like :+
     if (*eap->cmd == NUL && exmode_active
-        && getline_equal(eap->getline, eap->cookie, getexline)
+        && getline_equal(eap->ea_getline, eap->cookie, getexline)
         && curwin->w_cursor.lnum < curbuf->b_ml.ml_line_count) {
-      eap->cmd = "+";
+      eap->cmd = exmode_plus;
       if (!skip_only) {
         ex_pressedreturn = true;
       }
@@ -2406,6 +2496,15 @@ int parse_command_modifiers(exarg_T *eap, const char **errormsg, cmdmod_T *cmod,
 
     // ignore comment and empty lines
     if (*eap->cmd == '"') {
+      // a comment ends at a NL
+      eap->nextcmd = vim_strchr(eap->cmd, '\n');
+      if (eap->nextcmd != NULL) {
+        eap->nextcmd++;
+      }
+      return FAIL;
+    }
+    if (*eap->cmd == '\n') {
+      eap->nextcmd = eap->cmd + 1;
       return FAIL;
     }
     if (*eap->cmd == NUL) {
@@ -2619,7 +2718,7 @@ int parse_command_modifiers(exarg_T *eap, const char **errormsg, cmdmod_T *cmod,
 
 /// Apply the command modifiers.  Saves current state in "cmdmod", call
 /// undo_cmdmod() later.
-static void apply_cmdmod(cmdmod_T *cmod)
+void apply_cmdmod(cmdmod_T *cmod)
 {
   if ((cmod->cmod_flags & CMOD_SANDBOX) && !cmod->cmod_did_sandbox) {
     sandbox++;
@@ -2653,7 +2752,7 @@ static void apply_cmdmod(cmdmod_T *cmod)
     // Set 'eventignore' to "all".
     // First save the existing option value for restoring it later.
     cmod->cmod_save_ei = xstrdup(p_ei);
-    set_string_option_direct(kOptEventignore, "all", OPT_FREE, SID_NONE);
+    set_option_direct(kOptEventignore, STATIC_CSTR_AS_OPTVAL("all"), 0, SID_NONE);
   }
 }
 
@@ -2673,7 +2772,7 @@ void undo_cmdmod(cmdmod_T *cmod)
 
   if (cmod->cmod_save_ei != NULL) {
     // Restore 'eventignore' to the value before ":noautocmd".
-    set_string_option_direct(kOptEventignore, cmod->cmod_save_ei, OPT_FREE, SID_NONE);
+    set_option_direct(kOptEventignore, CSTR_AS_OPTVAL(cmod->cmod_save_ei), 0, SID_NONE);
     free_string_option(cmod->cmod_save_ei);
     cmod->cmod_save_ei = NULL;
   }
@@ -2688,9 +2787,7 @@ void undo_cmdmod(cmdmod_T *cmod)
       msg_silent = cmod->cmod_save_msg_silent - 1;
     }
     emsg_silent -= cmod->cmod_did_esilent;
-    if (emsg_silent < 0) {
-      emsg_silent = 0;
-    }
+    emsg_silent = MAX(emsg_silent, 0);
     // Restore msg_scroll, it's set by file I/O commands, even when no
     // message is actually displayed.
     msg_scroll = cmod->cmod_save_msg_scroll;
@@ -2831,9 +2928,9 @@ int parse_cmd_address(exarg_T *eap, const char **errormsg, bool silent)
         // (where zero usually means to use the first line).
         // Check the cursor position before returning.
         if (eap->line2 > 0) {
-          check_cursor();
+          check_cursor(curwin);
         } else {
-          check_cursor_col();
+          check_cursor_col(curwin);
         }
         need_check_cursor = true;
       }
@@ -2855,7 +2952,7 @@ int parse_cmd_address(exarg_T *eap, const char **errormsg, bool silent)
 
 theend:
   if (need_check_cursor) {
-    check_cursor();
+    check_cursor(curwin);
   }
   return ret;
 }
@@ -3258,7 +3355,7 @@ static const char *addr_error(cmd_addr_T addr_type)
 /// @param errormsg       Error message, if any
 ///
 /// @return               MAXLNUM when no Ex address was found.
-static linenr_T get_address(exarg_T *eap, char **ptr, cmd_addr_T addr_type, int skip, bool silent,
+static linenr_T get_address(exarg_T *eap, char **ptr, cmd_addr_T addr_type, bool skip, bool silent,
                             int to_other_file, int address_count, const char **errormsg)
   FUNC_ATTR_NONNULL_ALL
 {
@@ -3378,7 +3475,7 @@ static linenr_T get_address(exarg_T *eap, char **ptr, cmd_addr_T addr_type, int 
         fmark_T *fm = mark_get(curbuf, curwin, NULL, flag, *cmd);
         cmd++;
         if (fm != NULL && fm->fnum != curbuf->handle) {
-          (void)mark_move_to(fm, 0);
+          mark_move_to(fm, 0);
           // Jumped to another file.
           lnum = curwin->w_cursor.lnum;
         } else {
@@ -3423,14 +3520,10 @@ static linenr_T get_address(exarg_T *eap, char **ptr, cmd_addr_T addr_type, int 
         // This makes sure we never match in the current
         // line, and can match anywhere in the
         // next/previous line.
-        if (c == '/' && curwin->w_cursor.lnum > 0) {
-          curwin->w_cursor.col = MAXCOL;
-        } else {
-          curwin->w_cursor.col = 0;
-        }
+        curwin->w_cursor.col = (c == '/' && curwin->w_cursor.lnum > 0) ? MAXCOL : 0;
         searchcmdlen = 0;
         flags = silent ? 0 : SEARCH_HIS | SEARCH_MSG;
-        if (!do_search(NULL, c, c, cmd, 1, flags, NULL)) {
+        if (!do_search(NULL, c, c, cmd, strlen(cmd), 1, flags, NULL)) {
           curwin->w_cursor = pos;
           cmd = NULL;
           goto error;
@@ -3467,7 +3560,7 @@ static linenr_T get_address(exarg_T *eap, char **ptr, cmd_addr_T addr_type, int 
         pos.coladd = 0;
         if (searchit(curwin, curbuf, &pos, NULL,
                      *cmd == '?' ? BACKWARD : FORWARD,
-                     "", 1, SEARCH_MSG, i, NULL) != FAIL) {
+                     "", 0, 1, SEARCH_MSG, i, NULL) != FAIL) {
           lnum = pos.lnum;
         } else {
           cmd = NULL;
@@ -3537,6 +3630,7 @@ static linenr_T get_address(exarg_T *eap, char **ptr, cmd_addr_T addr_type, int 
         n = getdigits_int32(&cmd, false, MAXLNUM);
         if (n == MAXLNUM) {
           *errormsg = _(e_line_number_out_of_range);
+          cmd = NULL;
           goto error;
         }
       }
@@ -3552,13 +3646,14 @@ static linenr_T get_address(exarg_T *eap, char **ptr, cmd_addr_T addr_type, int 
         // closed fold after the first address.
         if (addr_type == ADDR_LINES && (i == '-' || i == '+')
             && address_count >= 2) {
-          (void)hasFolding(lnum, NULL, &lnum);
+          hasFolding(curwin, lnum, NULL, &lnum);
         }
         if (i == '-') {
           lnum -= n;
         } else {
           if (lnum >= 0 && n >= INT32_MAX - lnum) {
             *errormsg = _(e_line_number_out_of_range);
+            cmd = NULL;
             goto error;
           }
           lnum += n;
@@ -3753,8 +3848,8 @@ char *replace_makeprg(exarg_T *eap, char *arg, char **cmdlinep)
       // No $* in arg, build "<makeprg> <arg>" instead
       new_cmdline = xmalloc(strlen(program) + strlen(arg) + 2);
       STRCPY(new_cmdline, program);
-      STRCAT(new_cmdline, " ");
-      STRCAT(new_cmdline, arg);
+      strcat(new_cmdline, " ");
+      strcat(new_cmdline, arg);
     }
 
     msg_make(arg);
@@ -3779,12 +3874,12 @@ int expand_filename(exarg_T *eap, char **cmdlinep, const char **errormsgp)
   // Decide to expand wildcards *before* replacing '%', '#', etc.  If
   // the file name contains a wildcard it should not cause expanding.
   // (it will be expanded anyway if there is a wildcard before replacing).
-  int has_wildcards = path_has_wildcard(p);
+  bool has_wildcards = path_has_wildcard(p);
   while (*p != NUL) {
     // Skip over `=expr`, wildcards in it are not expanded.
     if (p[0] == '`' && p[1] == '=') {
       p += 2;
-      (void)skip_expr(&p, NULL);
+      skip_expr(&p, NULL);
       if (*p == '`') {
         p++;
       }
@@ -3859,9 +3954,7 @@ int expand_filename(exarg_T *eap, char **cmdlinep, const char **errormsgp)
          || eap->cmdidx == CMD_bang
          || eap->cmdidx == CMD_terminal)
         && strpbrk(repl, "!") != NULL) {
-      char *l;
-
-      l = vim_strsave_escaped(repl, "!");
+      char *l = vim_strsave_escaped(repl, "!");
       xfree(repl);
       repl = l;
     }
@@ -3889,7 +3982,7 @@ int expand_filename(exarg_T *eap, char **cmdlinep, const char **errormsgp)
         p = NULL;
       }
       if (p != NULL) {
-        (void)repl_cmdline(eap, eap->arg, strlen(eap->arg), p, cmdlinep);
+        repl_cmdline(eap, eap->arg, strlen(eap->arg), p, cmdlinep);
       }
     }
 
@@ -3917,7 +4010,7 @@ int expand_filename(exarg_T *eap, char **cmdlinep, const char **errormsgp)
       if (p == NULL) {
         return FAIL;
       }
-      (void)repl_cmdline(eap, eap->arg, strlen(eap->arg), p, cmdlinep);
+      repl_cmdline(eap, eap->arg, strlen(eap->arg), p, cmdlinep);
       xfree(p);
     }
   }
@@ -4003,19 +4096,24 @@ void separate_nextcmd(exarg_T *eap)
     } else if (p[0] == '`' && p[1] == '=' && (eap->argt & EX_XFILE)) {
       // Skip over `=expr` when wildcards are expanded.
       p += 2;
-      (void)skip_expr(&p, NULL);
+      skip_expr(&p, NULL);
       if (*p == NUL) {  // stop at NUL after CTRL-V
         break;
       }
     } else if (
-               // Check for '"': start of comment or '|': next command */
+               // Check for '"': start of comment or '|': next command
                // :@" does not start a comment!
                // :redir @" doesn't either.
                (*p == '"'
                 && !(eap->argt & EX_NOTRLCOM)
                 && (eap->cmdidx != CMD_at || p != eap->arg)
                 && (eap->cmdidx != CMD_redir
-                    || p != eap->arg + 1 || p[-1] != '@')) || *p == '|' || *p == '\n') {
+                    || p != eap->arg + 1 || p[-1] != '@'))
+               || (*p == '|'
+                   && eap->cmdidx != CMD_append
+                   && eap->cmdidx != CMD_change
+                   && eap->cmdidx != CMD_insert)
+               || *p == '\n') {
       // We remove the '\' before the '|', unless EX_CTRLV is used
       // AND 'b' is present in 'cpoptions'.
       if ((vim_strchr(p_cpo, CPO_BAR) == NULL
@@ -4043,7 +4141,7 @@ static char *getargcmd(char **argp)
 
   if (*arg == '+') {        // +[command]
     arg++;
-    if (ascii_isspace(*arg) || *arg == '\0') {
+    if (ascii_isspace(*arg) || *arg == NUL) {
       command = dollar_command;
     } else {
       command = arg;
@@ -4062,7 +4160,7 @@ static char *getargcmd(char **argp)
 /// Find end of "+command" argument.  Skip over "\ " and "\\".
 ///
 /// @param rembs  true to halve the number of backslashes
-char *skip_cmd_arg(char *p, int rembs)
+char *skip_cmd_arg(char *p, bool rembs)
 {
   while (*p && !ascii_isspace(*p)) {
     if (*p == '\\' && p[1] != NUL) {
@@ -4326,12 +4424,15 @@ static int get_tabpage_arg(exarg_T *eap)
       tab_number = 0;
     } else {
       tab_number = (int)eap->line2;
-      char *cmdp = eap->cmd;
-      while (--cmdp > *eap->cmdlinep && (*cmdp == ' ' || ascii_isdigit(*cmdp))) {}
-      if (!unaccept_arg0 && *cmdp == '-') {
-        tab_number--;
-        if (tab_number < unaccept_arg0) {
-          eap->errmsg = _(e_invrange);
+      if (!unaccept_arg0) {
+        char *cmdp = eap->cmd;
+        while (--cmdp > *eap->cmdlinep
+               && (ascii_iswhite(*cmdp) || ascii_isdigit(*cmdp))) {}
+        if (*cmdp == '-') {
+          tab_number--;
+          if (tab_number < unaccept_arg0) {
+            eap->errmsg = _(e_invrange);
+          }
         }
       }
     }
@@ -4375,7 +4476,7 @@ static void ex_doautocmd(exarg_T *eap)
   int call_do_modelines = check_nomodeline(&arg);
   bool did_aucmd;
 
-  (void)do_doautocmd(arg, false, &did_aucmd);
+  do_doautocmd(arg, false, &did_aucmd);
   // Only when there is no <nomodeline>.
   if (call_do_modelines && did_aucmd) {
     do_modelines(0);
@@ -4399,6 +4500,12 @@ static void ex_bunload(exarg_T *eap)
 /// :[N]buffer [N]       to buffer N
 /// :[N]sbuffer [N]      to buffer N
 static void ex_buffer(exarg_T *eap)
+{
+  do_exbuffer(eap);
+}
+
+/// ":buffer" command and alike.
+static void do_exbuffer(exarg_T *eap)
 {
   if (*eap->arg) {
     eap->errmsg = ex_errmsg(e_trailing_arg, eap->arg);
@@ -4507,7 +4614,7 @@ char *check_nextcmd(char *p)
 /// @param   message  when false check only, no messages
 ///
 /// @return  FAIL and give error message if 'message' true, return OK otherwise
-static int check_more(int message, bool forceit)
+static int check_more(bool message, bool forceit)
 {
   int n = ARGCOUNT - curwin->w_arg_idx - 1;
 
@@ -4549,7 +4656,7 @@ static void ex_colorscheme(exarg_T *eap)
     char *expr = xstrdup("g:colors_name");
 
     emsg_off++;
-    char *p = eval_to_string(expr, false);
+    char *p = eval_to_string(expr, false, false);
     emsg_off--;
     xfree(expr);
 
@@ -4688,11 +4795,9 @@ static void ex_cquit(exarg_T *eap)
 int before_quit_all(exarg_T *eap)
 {
   if (cmdwin_type != 0) {
-    if (eap->forceit) {
-      cmdwin_result = K_XF1;            // open_cmdwin() takes care of this
-    } else {
-      cmdwin_result = K_XF2;
-    }
+    cmdwin_result = eap->forceit
+                    ? K_XF1  // open_cmdwin() takes care of this
+                    : K_XF2;
     return FAIL;
   }
 
@@ -5063,6 +5168,177 @@ static void ex_wrongmodifier(exarg_T *eap)
   eap->errmsg = _(e_invcmd);
 }
 
+/// callback function for 'findfunc'
+static Callback ffu_cb;
+
+static Callback *get_findfunc_callback(void)
+{
+  return *curbuf->b_p_ffu != NUL ? &curbuf->b_ffu_cb : &ffu_cb;
+}
+
+/// Call 'findfunc' to obtain a list of file names.
+static list_T *call_findfunc(char *pat, BoolVarValue cmdcomplete)
+{
+  const sctx_T saved_sctx = current_sctx;
+
+  typval_T args[3];
+  args[0].v_type = VAR_STRING;
+  args[0].vval.v_string = pat;
+  args[1].v_type = VAR_BOOL;
+  args[1].vval.v_bool = cmdcomplete;
+  args[2].v_type = VAR_UNKNOWN;
+
+  // Lock the text to prevent weird things from happening.  Also disallow
+  // switching to another window, it should not be needed and may end up in
+  // Insert mode in another buffer.
+  textlock++;
+
+  sctx_T *ctx = get_option_sctx(kOptFindfunc);
+  if (ctx != NULL) {
+    current_sctx = *ctx;
+  }
+
+  Callback *cb = get_findfunc_callback();
+  typval_T rettv;
+  int retval = callback_call(cb, 2, args, &rettv);
+
+  current_sctx = saved_sctx;
+
+  textlock--;
+
+  list_T *retlist = NULL;
+
+  if (retval == OK) {
+    if (rettv.v_type == VAR_LIST) {
+      retlist = tv_list_copy(NULL, rettv.vval.v_list, false, get_copyID());
+    } else {
+      emsg(_(e_invalid_return_type_from_findfunc));
+    }
+
+    tv_clear(&rettv);
+  }
+
+  return retlist;
+}
+
+/// Find file names matching "pat" using 'findfunc' and return it in "files".
+/// Used for expanding the :find, :sfind and :tabfind command argument.
+/// Returns OK on success and FAIL otherwise.
+int expand_findfunc(char *pat, char ***files, int *numMatches)
+{
+  *numMatches = 0;
+  *files = NULL;
+
+  list_T *l = call_findfunc(pat, kBoolVarTrue);
+  if (l == NULL) {
+    return FAIL;
+  }
+
+  int len = tv_list_len(l);
+  if (len == 0) {  // empty List
+    return FAIL;
+  }
+
+  *files = xmalloc(sizeof(char *) * (size_t)len);
+
+  // Copy all the List items
+  int idx = 0;
+  TV_LIST_ITER_CONST(l, li, {
+    if (TV_LIST_ITEM_TV(li)->v_type == VAR_STRING) {
+      (*files)[idx] = xstrdup(TV_LIST_ITEM_TV(li)->vval.v_string);
+      idx++;
+    }
+  });
+
+  *numMatches = idx;
+  tv_list_free(l);
+
+  return OK;
+}
+
+/// Use 'findfunc' to find file 'findarg'.  The 'count' argument is used to find
+/// the n'th matching file.
+static char *findfunc_find_file(char *findarg, size_t findarg_len, int count)
+{
+  char *ret_fname = NULL;
+
+  const char cc = findarg[findarg_len];
+  findarg[findarg_len] = NUL;
+
+  list_T *fname_list = call_findfunc(findarg, kBoolVarFalse);
+  int fname_count = tv_list_len(fname_list);
+
+  if (fname_count == 0) {
+    semsg(_(e_cant_find_file_str_in_path), findarg);
+  } else {
+    if (count > fname_count) {
+      semsg(_(e_no_more_file_str_found_in_path), findarg);
+    } else {
+      listitem_T *li = tv_list_find(fname_list, count - 1);
+      if (li != NULL && TV_LIST_ITEM_TV(li)->v_type == VAR_STRING) {
+        ret_fname = xstrdup(TV_LIST_ITEM_TV(li)->vval.v_string);
+      }
+    }
+  }
+
+  if (fname_list != NULL) {
+    tv_list_free(fname_list);
+  }
+
+  findarg[findarg_len] = cc;
+
+  return ret_fname;
+}
+
+/// Process the 'findfunc' option value.
+/// Returns NULL on success and an error message on failure.
+const char *did_set_findfunc(optset_T *args)
+{
+  buf_T *buf = (buf_T *)args->os_buf;
+  int retval;
+
+  if (args->os_flags & OPT_LOCAL) {
+    // buffer-local option set
+    retval = option_set_callback_func(buf->b_p_ffu, &buf->b_ffu_cb);
+  } else {
+    // global option set
+    retval = option_set_callback_func(p_ffu, &ffu_cb);
+    // when using :set, free the local callback
+    if (!(args->os_flags & OPT_GLOBAL)) {
+      callback_free(&buf->b_ffu_cb);
+    }
+  }
+
+  if (retval == FAIL) {
+    return e_invarg;
+  }
+
+  // If the option value starts with <SID> or s:, then replace that with
+  // the script identifier.
+  char **varp = (char **)args->os_varp;
+  char *name = get_scriptlocal_funcname(*varp);
+  if (name != NULL) {
+    free_string_option(*varp);
+    *varp = name;
+  }
+
+  return NULL;
+}
+
+void free_findfunc_option(void)
+{
+  callback_free(&ffu_cb);
+}
+
+/// Mark the global 'findfunc' callback with "copyID" so that it is not
+/// garbage collected.
+bool set_ref_in_findfunc(int copyID)
+{
+  bool abort = false;
+  abort = set_ref_in_callback(&ffu_cb, copyID, NULL, NULL);
+  return abort;
+}
+
 /// :sview [+command] file       split window with new file, read-only
 /// :split [[+command] file]     split window with current or new file
 /// :vsplit [[+command] file]    split window vertically with current or new file
@@ -5094,13 +5370,17 @@ void ex_splitview(exarg_T *eap)
   }
 
   if (eap->cmdidx == CMD_sfind || eap->cmdidx == CMD_tabfind) {
-    char *file_to_find = NULL;
-    char *search_ctx = NULL;
-    fname = find_file_in_path(eap->arg, strlen(eap->arg),
-                              FNAME_MESS, true, curbuf->b_ffname,
-                              &file_to_find, &search_ctx);
-    xfree(file_to_find);
-    vim_findfile_cleanup(search_ctx);
+    if (*get_findfunc() != NUL) {
+      fname = findfunc_find_file(eap->arg, strlen(eap->arg),
+                                 eap->addr_count > 0 ? eap->line2 : 1);
+    } else {
+      char *file_to_find = NULL;
+      char *search_ctx = NULL;
+      fname = find_file_in_path(eap->arg, strlen(eap->arg), FNAME_MESS, true,
+                                curbuf->b_ffname, &file_to_find, &search_ctx);
+      xfree(file_to_find);
+      vim_findfile_cleanup(search_ctx);
+    }
     if (fname == NULL) {
       goto theend;
     }
@@ -5224,12 +5504,14 @@ static void ex_tabs(exarg_T *eap)
 
     msg_putchar('\n');
     vim_snprintf(IObuff, IOSIZE, _("Tab page %d"), tabcount++);
-    msg_outtrans(IObuff, HL_ATTR(HLF_T));
+    msg_outtrans(IObuff, HLF_T, false);
     os_breakcheck();
 
     FOR_ALL_WINDOWS_IN_TAB(wp, tp) {
       if (got_int) {
         break;
+      } else if (!wp->w_config.focusable) {
+        continue;
       }
 
       msg_putchar('\n');
@@ -5242,7 +5524,7 @@ static void ex_tabs(exarg_T *eap)
       } else {
         home_replace(wp->w_buffer, wp->w_buffer->b_fname, IObuff, IOSIZE, true);
       }
-      msg_outtrans(IObuff, 0);
+      msg_outtrans(IObuff, 0, false);
       os_breakcheck();
     }
   }
@@ -5292,23 +5574,32 @@ static void ex_resize(exarg_T *eap)
 /// ":find [+command] <file>" command.
 static void ex_find(exarg_T *eap)
 {
-  char *file_to_find = NULL;
-  char *search_ctx = NULL;
-  char *fname = find_file_in_path(eap->arg, strlen(eap->arg),
-                                  FNAME_MESS, true, curbuf->b_ffname,
-                                  &file_to_find, &search_ctx);
-  if (eap->addr_count > 0) {
-    // Repeat finding the file "count" times.  This matters when it appears
-    // several times in the path.
-    linenr_T count = eap->line2;
-    while (fname != NULL && --count > 0) {
-      xfree(fname);
-      fname = find_file_in_path(NULL, 0, FNAME_MESS, false, curbuf->b_ffname,
-                                &file_to_find, &search_ctx);
-    }
+  if (!check_can_set_curbuf_forceit(eap->forceit)) {
+    return;
   }
-  xfree(file_to_find);
-  vim_findfile_cleanup(search_ctx);
+
+  char *fname = NULL;
+  if (*get_findfunc() != NUL) {
+    fname = findfunc_find_file(eap->arg, strlen(eap->arg),
+                               eap->addr_count > 0 ? eap->line2 : 1);
+  } else {
+    char *file_to_find = NULL;
+    char *search_ctx = NULL;
+    fname = find_file_in_path(eap->arg, strlen(eap->arg), FNAME_MESS, true,
+                              curbuf->b_ffname, &file_to_find, &search_ctx);
+    if (eap->addr_count > 0) {
+      // Repeat finding the file "count" times.  This matters when it appears
+      // several times in the path.
+      linenr_T count = eap->line2;
+      while (fname != NULL && --count > 0) {
+        xfree(fname);
+        fname = find_file_in_path(NULL, 0, FNAME_MESS, false,
+                                  curbuf->b_ffname, &file_to_find, &search_ctx);
+      }
+    }
+    xfree(file_to_find);
+    vim_findfile_cleanup(search_ctx);
+  }
 
   if (fname == NULL) {
     return;
@@ -5322,6 +5613,16 @@ static void ex_find(exarg_T *eap)
 /// ":edit", ":badd", ":balt", ":visual".
 static void ex_edit(exarg_T *eap)
 {
+  char *ffname = eap->cmdidx == CMD_enew ? NULL : eap->arg;
+
+  // Exclude commands which keep the window's current buffer
+  if (eap->cmdidx != CMD_badd
+      && eap->cmdidx != CMD_balt
+      // All other commands must obey 'winfixbuf' / ! rules
+      && (is_other_file(0, ffname) && !check_can_set_curbuf_forceit(eap->forceit))) {
+    return;
+  }
+
   do_exedit(eap, NULL);
 }
 
@@ -5370,9 +5671,9 @@ void do_exedit(exarg_T *eap, win_T *old_curwin)
        || eap->cmdidx == CMD_vnew) && *eap->arg == NUL) {
     // ":new" or ":tabnew" without argument: edit a new empty buffer
     setpcmark();
-    (void)do_ecmd(0, NULL, NULL, eap, ECMD_ONE,
-                  ECMD_HIDE + (eap->forceit ? ECMD_FORCEIT : 0),
-                  old_curwin == NULL ? curwin : NULL);
+    do_ecmd(0, NULL, NULL, eap, ECMD_ONE,
+            ECMD_HIDE + (eap->forceit ? ECMD_FORCEIT : 0),
+            old_curwin == NULL ? curwin : NULL);
   } else if ((eap->cmdidx != CMD_split && eap->cmdidx != CMD_vsplit)
              || *eap->arg != NUL) {
     // Can't edit another file when "textlock" or "curbuf->b_ro_locked" is set.
@@ -5474,51 +5775,43 @@ static void ex_swapname(exarg_T *eap)
 /// (1998-11-02 16:21:01  R. Edward Ralston <eralston@computer.org>)
 static void ex_syncbind(exarg_T *eap)
 {
-  win_T *save_curwin = curwin;
-  buf_T *save_curbuf = curbuf;
-  linenr_T topline;
-  int y;
+  linenr_T vtopline;  // Target topline (including fill)
+
   linenr_T old_linenr = curwin->w_cursor.lnum;
 
   setpcmark();
 
-  // determine max topline
+  // determine max (virtual) topline
   if (curwin->w_p_scb) {
-    topline = curwin->w_topline;
+    vtopline = get_vtopline(curwin);
     FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
       if (wp->w_p_scb && wp->w_buffer) {
-        y = wp->w_buffer->b_ml.ml_line_count - get_scrolloff_value(curwin);
-        if (topline > y) {
-          topline = y;
-        }
+        linenr_T y = plines_m_win_fill(wp, 1, wp->w_buffer->b_ml.ml_line_count)
+                     - get_scrolloff_value(curwin);
+        vtopline = MIN(vtopline, y);
       }
     }
-    if (topline < 1) {
-      topline = 1;
-    }
+    vtopline = MAX(vtopline, 1);
   } else {
-    topline = 1;
+    vtopline = 1;
   }
 
   // Set all scrollbind windows to the same topline.
   FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
-    curwin = wp;
-    if (curwin->w_p_scb) {
-      curbuf = curwin->w_buffer;
-      y = topline - curwin->w_topline;
+    if (wp->w_p_scb) {
+      int y = vtopline - get_vtopline(wp);
       if (y > 0) {
-        scrollup(y, true);
+        scrollup(wp, y, true);
       } else {
-        scrolldown(-y, true);
+        scrolldown(wp, -y, true);
       }
-      curwin->w_scbind_pos = topline;
-      redraw_later(curwin, UPD_VALID);
-      cursor_correct();
-      curwin->w_redr_status = true;
+      wp->w_scbind_pos = vtopline;
+      redraw_later(wp, UPD_VALID);
+      cursor_correct(wp);
+      wp->w_redr_status = true;
     }
   }
-  curwin = save_curwin;
-  curbuf = save_curbuf;
+
   if (curwin->w_p_scb) {
     did_syncbind = true;
     checkpcmark();
@@ -5554,7 +5847,7 @@ static void ex_read(exarg_T *eap)
                  eap->line2, 0, (linenr_T)MAXLNUM, eap, 0, false);
   } else {
     if (vim_strchr(p_cpo, CPO_ALTREAD) != NULL) {
-      (void)setaltfname(eap->arg, eap->arg, 1);
+      setaltfname(eap->arg, eap->arg, 1);
     }
     i = readfile(eap->arg, NULL,
                  eap->line2, 0, (linenr_T)MAXLNUM, eap, 0, false);
@@ -5800,8 +6093,8 @@ static void ex_equal(exarg_T *eap)
 
 static void ex_sleep(exarg_T *eap)
 {
-  if (cursor_valid()) {
-    setcursor_mayforce(true);
+  if (cursor_valid(curwin)) {
+    setcursor_mayforce(curwin, true);
   }
 
   int64_t len = eap->line2;
@@ -5813,19 +6106,31 @@ static void ex_sleep(exarg_T *eap)
   default:
     semsg(_(e_invarg2), eap->arg); return;
   }
-  do_sleep(len);
+
+  // Hide the cursor if invoked with !
+  do_sleep(len, eap->forceit);
 }
 
 /// Sleep for "msec" milliseconds, but return early on CTRL-C.
-void do_sleep(int64_t msec)
+///
+/// @param hide_cursor  hide the cursor if true
+void do_sleep(int64_t msec, bool hide_cursor)
 {
+  if (hide_cursor) {
+    ui_busy_start();
+  }
+
   ui_flush();  // flush before waiting
   LOOP_PROCESS_EVENTS_UNTIL(&main_loop, main_loop.events, msec, got_int);
 
   // If CTRL-C was typed to interrupt the sleep, drop the CTRL-C from the
   // input buffer, otherwise a following call to input() fails.
   if (got_int) {
-    (void)vpeekc();
+    vpeekc();
+  }
+
+  if (hide_cursor) {
+    ui_busy_stop();
   }
 }
 
@@ -5910,7 +6215,7 @@ static void ex_operators(exarg_T *eap)
 
   case CMD_yank:
     oa.op_type = OP_YANK;
-    (void)op_yank(&oa, true);
+    op_yank(&oa, true);
     break;
 
   default:          // CMD_rshift or CMD_lshift
@@ -5936,7 +6241,7 @@ static void ex_put(exarg_T *eap)
     eap->forceit = true;
   }
   curwin->w_cursor.lnum = eap->line2;
-  check_cursor_col();
+  check_cursor_col(curwin);
   do_put(eap->regname, NULL, eap->forceit ? BACKWARD : FORWARD, 1,
          PUT_LINE|PUT_CURSLINE);
 }
@@ -6030,7 +6335,7 @@ static void ex_at(exarg_T *eap)
   int prev_len = typebuf.tb_len;
 
   curwin->w_cursor.lnum = eap->line2;
-  check_cursor_col();
+  check_cursor_col(curwin);
 
   // Get the register name. No name means use the previous one.
   int c = (uint8_t)(*eap->arg);
@@ -6052,7 +6357,7 @@ static void ex_at(exarg_T *eap)
   // Continue until the stuff buffer is empty and all added characters
   // have been consumed.
   while (!stuff_empty() || typebuf.tb_len > prev_len) {
-    (void)do_cmdline(NULL, getexline, NULL, DOCMD_NOWAIT|DOCMD_VERBOSE);
+    do_cmdline(NULL, getexline, NULL, DOCMD_NOWAIT|DOCMD_VERBOSE);
   }
 
   exec_from_reg = save_efr;
@@ -6212,7 +6517,7 @@ static void ex_redir(exarg_T *eap)
         semsg(_(e_invarg2), eap->arg);
       }
     } else if (*arg == '=' && arg[1] == '>') {
-      int append;
+      bool append;
 
       // redirect to a variable
       close_redir();
@@ -6226,7 +6531,7 @@ static void ex_redir(exarg_T *eap)
       }
 
       if (var_redir_start(skipwhite(arg), append) == OK) {
-        redir_vname = 1;
+        redir_vname = true;
       }
     } else {  // TODO(vim): redirect to a buffer
       semsg(_(e_invarg2), eap->arg);
@@ -6252,7 +6557,7 @@ static void ex_redraw(exarg_T *eap)
 
   RedrawingDisabled = 0;
   p_lz = false;
-  validate_cursor();
+  validate_cursor(curwin);
   update_topline(curwin);
   if (eap->forceit) {
     redraw_all_later(UPD_NOT_VALID);
@@ -6332,7 +6637,7 @@ static void close_redir(void)
   redir_reg = 0;
   if (redir_vname) {
     var_redir_stop();
-    redir_vname = 0;
+    redir_vname = false;
   }
 }
 
@@ -6405,10 +6710,10 @@ static void ex_mark(exarg_T *eap)
 /// Update w_topline, w_leftcol and the cursor position.
 void update_topline_cursor(void)
 {
-  check_cursor();               // put cursor on valid line
+  check_cursor(curwin);               // put cursor on valid line
   update_topline(curwin);
   if (!curwin->w_p_wrap) {
-    validate_cursor();
+    validate_cursor(curwin);
   }
   update_curswant();
 }
@@ -6628,7 +6933,7 @@ static void ex_checkpath(exarg_T *eap)
 {
   find_pattern_in_path(NULL, 0, 0, false, false, CHECK_PATH, 1,
                        eap->forceit ? ACTION_SHOW_ALL : ACTION_SHOW,
-                       1, (linenr_T)MAXLNUM);
+                       1, (linenr_T)MAXLNUM, eap->forceit);
 }
 
 /// ":psearch"
@@ -6687,7 +6992,7 @@ static void ex_findpat(exarg_T *eap)
   if (!eap->skip) {
     find_pattern_in_path(eap->arg, 0, strlen(eap->arg), whole, !eap->forceit,
                          *eap->cmd == 'd' ? FIND_DEFINE : FIND_ANY,
-                         n, action, eap->line1, eap->line2);
+                         n, action, eap->line1, eap->line2, eap->forceit);
   }
 }
 
@@ -6702,17 +7007,38 @@ static void ex_ptag(exarg_T *eap)
 static void ex_pedit(exarg_T *eap)
 {
   win_T *curwin_save = curwin;
-
-  // Open the preview window or popup and make it the current window.
-  g_do_tagpreview = (int)p_pvh;
-  prepare_tagpreview(true);
+  prepare_preview_window();
 
   // Edit the file.
   do_exedit(eap, NULL);
 
+  back_to_current_window(curwin_save);
+}
+
+/// ":pbuffer"
+static void ex_pbuffer(exarg_T *eap)
+{
+  win_T *curwin_save = curwin;
+  prepare_preview_window();
+
+  // Go to the buffer.
+  do_exbuffer(eap);
+
+  back_to_current_window(curwin_save);
+}
+
+static void prepare_preview_window(void)
+{
+  // Open the preview window or popup and make it the current window.
+  g_do_tagpreview = (int)p_pvh;
+  prepare_tagpreview(true);
+}
+
+static void back_to_current_window(win_T *curwin_save)
+{
   if (curwin != curwin_save && win_valid(curwin_save)) {
     // Return cursor to where we were
-    validate_cursor();
+    validate_cursor(curwin);
     redraw_later(curwin, UPD_VALID);
     win_enter(curwin_save, true);
   }
@@ -7074,8 +7400,7 @@ char *eval_vars(char *src, const char *srcstart, size_t *usedlen, linenr_T *lnum
         *errormsg = _(e_usingsid);
         return NULL;
       }
-      snprintf(strbuf, sizeof(strbuf), "<SNR>%" PRIdSCID "_",
-               current_sctx.sc_sid);
+      snprintf(strbuf, sizeof(strbuf), "<SNR>%" PRIdSCID "_", current_sctx.sc_sid);
       result = strbuf;
       break;
 
@@ -7154,7 +7479,7 @@ char *expand_sfile(char *arg)
       memmove(newres, result, (size_t)(p - result));
       STRCPY(newres + (p - result), repl);
       len = strlen(newres);
-      STRCAT(newres, p + srclen);
+      strcat(newres, p + srclen);
       xfree(repl);
       xfree(result);
       result = newres;
@@ -7173,7 +7498,7 @@ static void ex_shada(exarg_T *eap)
     p_shada = "'100";
   }
   if (eap->cmdidx == CMD_rviminfo || eap->cmdidx == CMD_rshada) {
-    (void)shada_read_everything(eap->arg, eap->forceit, false);
+    shada_read_everything(eap->arg, eap->forceit, false);
   } else {
     shada_write_file(eap->arg, eap->forceit);
   }
@@ -7231,7 +7556,7 @@ static void ex_filetype(exarg_T *eap)
     break;
   }
   if (strcmp(arg, "on") == 0 || strcmp(arg, "detect") == 0) {
-    if (*arg == 'o' || !filetype_detect) {
+    if (*arg == 'o' || filetype_detect != kTrue) {
       source_runtime(FILETYPE_FILE, DIP_ALL);
       filetype_detect = kTrue;
       if (plugin) {
@@ -7244,7 +7569,7 @@ static void ex_filetype(exarg_T *eap)
       }
     }
     if (*arg == 'd') {
-      (void)do_doautocmd("filetypedetect BufRead", true, NULL);
+      do_doautocmd("filetypedetect BufRead", true, NULL);
       do_modelines(0);
     }
   } else if (strcmp(arg, "off") == 0) {
@@ -7297,7 +7622,7 @@ void filetype_maybe_enable(void)
 /// ":setfiletype [FALLBACK] {name}"
 static void ex_setfiletype(exarg_T *eap)
 {
-  if (did_filetype) {
+  if (curbuf->b_did_filetype) {
     return;
   }
 
@@ -7308,7 +7633,7 @@ static void ex_setfiletype(exarg_T *eap)
 
   set_option_value_give_err(kOptFiletype, CSTR_AS_OPTVAL(arg), OPT_LOCAL);
   if (arg != eap->arg) {
-    did_filetype = false;
+    curbuf->b_did_filetype = false;
   }
 }
 
@@ -7354,7 +7679,7 @@ static void ex_folddo(exarg_T *eap)
 {
   // First set the marks for all lines closed/open.
   for (linenr_T lnum = eap->line1; lnum <= eap->line2; lnum++) {
-    if (hasFolding(lnum, NULL, NULL) == (eap->cmdidx == CMD_folddoclosed)) {
+    if (hasFolding(curwin, lnum, NULL, NULL) == (eap->cmdidx == CMD_folddoclosed)) {
       ml_setmarked(lnum);
     }
   }
@@ -7385,6 +7710,44 @@ void set_pressedreturn(bool val)
   ex_pressedreturn = val;
 }
 
+/// ":checkhealth [plugins]"
+static void ex_checkhealth(exarg_T *eap)
+{
+  Error err = ERROR_INIT;
+  MAXSIZE_TEMP_ARRAY(args, 2);
+
+  char mods[1024];
+  size_t mods_len = 0;
+  mods[0] = NUL;
+
+  if (cmdmod.cmod_tab > 0 || cmdmod.cmod_split != 0) {
+    bool multi_mods = false;
+    mods_len = add_win_cmd_modifiers(mods, &cmdmod, &multi_mods);
+    assert(mods_len < sizeof(mods));
+  }
+  ADD_C(args, STRING_OBJ(((String){ .data = mods, .size = mods_len })));
+  ADD_C(args, CSTR_AS_OBJ(eap->arg));
+
+  NLUA_EXEC_STATIC("vim.health._check(...)", args, kRetNilBool, NULL, &err);
+  if (!ERROR_SET(&err)) {
+    return;
+  }
+
+  const char *vimruntime_env = os_getenv("VIMRUNTIME");
+  if (vimruntime_env == NULL) {
+    emsg(_("E5009: $VIMRUNTIME is empty or unset"));
+  } else {
+    bool rtp_ok = NULL != strstr(p_rtp, vimruntime_env);
+    if (rtp_ok) {
+      semsg(_("E5009: Invalid $VIMRUNTIME: %s"), vimruntime_env);
+    } else {
+      emsg(_("E5009: Invalid 'runtimepath'"));
+    }
+  }
+  semsg_multiline(err.msg);
+  api_clear_error(&err);
+}
+
 static void ex_terminal(exarg_T *eap)
 {
   char ex_cmd[1024];
@@ -7392,10 +7755,8 @@ static void ex_terminal(exarg_T *eap)
 
   if (cmdmod.cmod_tab > 0 || cmdmod.cmod_split != 0) {
     bool multi_mods = false;
-
-    // ex_cmd must be a null terminated string before passing to add_win_cmd_modifiers
-    ex_cmd[0] = '\0';
-
+    // ex_cmd must be a null-terminated string before passing to add_win_cmd_modifiers
+    ex_cmd[0] = NUL;
     len = add_win_cmd_modifiers(ex_cmd, &cmdmod, &multi_mods);
     assert(len < sizeof(ex_cmd));
     int result = snprintf(ex_cmd + len, sizeof(ex_cmd) - len, " new");
@@ -7412,7 +7773,7 @@ static void ex_terminal(exarg_T *eap)
   if (*eap->arg != NUL) {  // Run {cmd} in 'shell'.
     char *name = vim_strsave_escaped(eap->arg, "\"\\");
     snprintf(ex_cmd + len, sizeof(ex_cmd) - len,
-             " | call termopen(\"%s\")", name);
+             " | call jobstart(\"%s\",{'term':v:true})", name);
     xfree(name);
   } else {  // No {cmd}: run the job with tokenized 'shell'.
     if (*p_sh == NUL) {
@@ -7435,7 +7796,7 @@ static void ex_terminal(exarg_T *eap)
     shell_free_argv(argv);
 
     snprintf(ex_cmd + len, sizeof(ex_cmd) - len,
-             " | call termopen([%s])", shell_argv + 1);
+             " | call jobstart([%s], {'term':v:true})", shell_argv + 1);
   }
 
   do_cmdline_cmd(ex_cmd);
@@ -7452,7 +7813,7 @@ void verify_command(char *cmd)
   if (strcmp("smile", cmd) != 0) {
     return;  // acceptable non-existing command
   }
-  int a = HL_ATTR(HLF_E);
+  int a = HLF_E;
   msg(" #xxn`          #xnxx`        ,+x@##@Mz;`        .xxx"
       "xxxxxxnz+,      znnnnnnnnnnnnnnnn.", a);
   msg(" n###z          x####`      :x##########W+`      ,###"

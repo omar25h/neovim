@@ -3,8 +3,10 @@
 #include <stdbool.h>
 #include <string.h>
 
+#include "klib/kvec.h"
 #include "nvim/ascii_defs.h"
 #include "nvim/autocmd.h"
+#include "nvim/autocmd_defs.h"
 #include "nvim/buffer.h"
 #include "nvim/buffer_defs.h"
 #include "nvim/change.h"
@@ -65,12 +67,11 @@ buf_T *find_buffer(typval_T *avar)
 /// If there is a window for "curbuf", make it the current window.
 static void find_win_for_curbuf(void)
 {
-  wininfo_T *wip;
-
   // The b_wininfo list should have the windows that recently contained the
   // buffer, going over this is faster than going over all the windows.
   // Do check the buffer is still there.
-  FOR_ALL_BUF_WININFO(curbuf, wip) {
+  for (size_t i = 0; i < kv_size(curbuf->b_wininfo); i++) {
+    WinInfo *wip = kv_A(curbuf->b_wininfo, i);
     if (wip->wi_win != NULL && wip->wi_win->w_buffer == curbuf) {
       curwin = wip->wi_win;
       break;
@@ -196,7 +197,7 @@ static void set_buffer_lines(buf_T *buf, linenr_T lnum_arg, bool append, typval_
           && ml_replace(lnum, line, true) == OK) {
         inserted_bytes(lnum, 0, old_len, (int)strlen(line));
         if (is_curbuf && lnum == curwin->w_cursor.lnum) {
-          check_cursor_col();
+          check_cursor_col(curwin);
         }
         rettv->vval.v_number = 0;  // OK
       }
@@ -228,7 +229,7 @@ static void set_buffer_lines(buf_T *buf, linenr_T lnum_arg, bool append, typval_
         wp->w_cursor.lnum += (linenr_T)added;
       }
     }
-    check_cursor_col();
+    check_cursor_col(curwin);
     update_topline(curwin);
   }
 
@@ -468,7 +469,7 @@ void f_deletebufline(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
       }
     }
   }
-  check_cursor_col();
+  check_cursor_col(curwin);
   deleted_lines_mark(first, count);
   rettv->vval.v_number = 0;  // OK
 
@@ -493,6 +494,7 @@ static dict_T *get_buffer_info(buf_T *buf)
   tv_dict_add_nr(dict, S_LEN("changed"), bufIsChanged(buf));
   tv_dict_add_nr(dict, S_LEN("changedtick"), buf_get_changedtick(buf));
   tv_dict_add_nr(dict, S_LEN("hidden"), buf->b_ml.ml_mfp != NULL && buf->b_nwindows == 0);
+  tv_dict_add_nr(dict, S_LEN("command"), buf == cmdwin_buf);
 
   // Get a reference to buffer variables
   tv_dict_add_dict(dict, S_LEN("variables"), buf->b_vars);
@@ -506,7 +508,7 @@ static dict_T *get_buffer_info(buf_T *buf)
   }
   tv_dict_add_list(dict, S_LEN("windows"), windows);
 
-  if (buf->b_signs) {
+  if (buf_has_signs(buf)) {
     // List of signs placed in this buffer
     tv_dict_add_list(dict, S_LEN("signs"), get_buffer_signs(buf));
   }
@@ -583,7 +585,8 @@ void f_getbufinfo(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 ///
 /// @return  range (from start to end) of lines in rettv from the specified
 ///          buffer.
-static void get_buffer_lines(buf_T *buf, linenr_T start, linenr_T end, int retlist, typval_T *rettv)
+static void get_buffer_lines(buf_T *buf, linenr_T start, linenr_T end, bool retlist,
+                             typval_T *rettv)
 {
   rettv->v_type = (retlist ? VAR_LIST : VAR_STRING);
   rettv->vval.v_string = NULL;

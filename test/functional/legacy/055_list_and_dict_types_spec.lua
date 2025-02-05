@@ -1,8 +1,9 @@
 -- Tests for List and Dictionary types.
 
-local helpers = require('test.functional.helpers')(after_each)
-local feed, source = helpers.feed, helpers.source
-local clear, feed_command, expect = helpers.clear, helpers.feed_command, helpers.expect
+local n = require('test.functional.testnvim')()
+
+local feed, source = n.feed, n.source
+local clear, feed_command, expect = n.clear, n.feed_command, n.expect
 
 describe('list and dictionary types', function()
   before_each(clear)
@@ -547,7 +548,8 @@ describe('list and dictionary types', function()
       $put =string(sort(copy(l), 1))
       $put =string(sort(copy(l), 'i'))
       $put =string(sort(copy(l)))]=])
-    expect([=[
+    expect(
+      [=[
 
       ['-0', 'A11', 2, 'xaaa', 4, 'foo', 'foo6', 'foo', [0, 1, 2], 'x8', [0, 1, 2], 1.5]
       [1.5, [0, 1, 2], 'x8', [0, 1, 2], 'foo', 'foo6', 'foo', 4, 'xaaa', 2, 2, 'A11', '-0']
@@ -559,7 +561,8 @@ describe('list and dictionary types', function()
       [-1, 'one', 'two', 'three', 'four', 1.0e-15, 0.22, 7, 9, 12, 18, 22, 255]
       ['bar', 'BAR', 'Bar', 'Foo', 'FOO', 'foo', 'FOOBAR', -1, 0, 0, 0.22, 1.0e-15, 12, 18, 22, 255, 7, 9, [], {}]
       ['bar', 'BAR', 'Bar', 'Foo', 'FOO', 'foo', 'FOOBAR', -1, 0, 0, 0.22, 1.0e-15, 12, 18, 22, 255, 7, 9, [], {}]
-      ['BAR', 'Bar', 'FOO', 'FOOBAR', 'Foo', 'bar', 'foo', -1, 0, 0, 0.22, 1.0e-15, 12, 18, 22, 255, 7, 9, [], {}]]=])
+      ['BAR', 'Bar', 'FOO', 'FOOBAR', 'Foo', 'bar', 'foo', -1, 0, 0, 0.22, 1.0e-15, 12, 18, 22, 255, 7, 9, [], {}]]=]
+    )
   end)
 
   it('splitting a string to a list', function()

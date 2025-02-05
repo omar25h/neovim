@@ -1,24 +1,27 @@
-local helpers = require('test.functional.helpers')(after_each)
+local t = require('test.testutil')
+local n = require('test.functional.testnvim')()
 local Screen = require('test.functional.ui.screen')
-local thelpers = require('test.functional.terminal.helpers')
-local assert_alive = helpers.assert_alive
-local feed, clear, nvim = helpers.feed, helpers.clear, helpers.nvim
-local poke_eventloop = helpers.poke_eventloop
-local nvim_prog = helpers.nvim_prog
-local eval, feed_command, source = helpers.eval, helpers.feed_command, helpers.source
-local pcall_err = helpers.pcall_err
-local eq, neq = helpers.eq, helpers.neq
-local meths = helpers.meths
-local retry = helpers.retry
-local write_file = helpers.write_file
-local command = helpers.command
-local exc_exec = helpers.exc_exec
-local matches = helpers.matches
-local exec_lua = helpers.exec_lua
-local sleep = helpers.sleep
-local funcs = helpers.funcs
-local is_os = helpers.is_os
-local skip = helpers.skip
+local tt = require('test.functional.testterm')
+
+local assert_alive = n.assert_alive
+local feed, clear = n.feed, n.clear
+local poke_eventloop = n.poke_eventloop
+local nvim_prog = n.nvim_prog
+local eval, feed_command, source = n.eval, n.feed_command, n.source
+local pcall_err = t.pcall_err
+local eq, neq = t.eq, t.neq
+local api = n.api
+local retry = t.retry
+local testprg = n.testprg
+local write_file = t.write_file
+local command = n.command
+local exc_exec = n.exc_exec
+local matches = t.matches
+local exec_lua = n.exec_lua
+local sleep = vim.uv.sleep
+local fn = n.fn
+local is_os = t.is_os
+local skip = t.skip
 
 describe(':terminal buffer', function()
   local screen
@@ -26,19 +29,25 @@ describe(':terminal buffer', function()
   before_each(function()
     clear()
     command('set modifiable swapfile undolevels=20')
-    screen = thelpers.screen_setup()
+    screen = tt.setup_screen()
   end)
 
   it('terminal-mode forces various options', function()
     feed([[<C-\><C-N>]])
     command('setlocal cursorline cursorlineopt=both cursorcolumn scrolloff=4 sidescrolloff=7')
-    eq({ 'both', 1, 1, 4, 7 }, eval('[&l:cursorlineopt, &l:cursorline, &l:cursorcolumn, &l:scrolloff, &l:sidescrolloff]'))
+    eq(
+      { 'both', 1, 1, 4, 7 },
+      eval('[&l:cursorlineopt, &l:cursorline, &l:cursorcolumn, &l:scrolloff, &l:sidescrolloff]')
+    )
     eq('nt', eval('mode(1)'))
 
     -- Enter terminal-mode ("insert" mode in :terminal).
     feed('i')
     eq('t', eval('mode(1)'))
-    eq({ 'number', 1, 0, 0, 0 }, eval('[&l:cursorlineopt, &l:cursorline, &l:cursorcolumn, &l:scrolloff, &l:sidescrolloff]'))
+    eq(
+      { 'number', 1, 0, 0, 0 },
+      eval('[&l:cursorlineopt, &l:cursorline, &l:cursorcolumn, &l:scrolloff, &l:sidescrolloff]')
+    )
   end)
 
   it('terminal-mode does not change cursorlineopt if cursorline is disabled', function()
@@ -48,7 +57,7 @@ describe(':terminal buffer', function()
     eq({ 0, 'both' }, eval('[&l:cursorline, &l:cursorlineopt]'))
   end)
 
-  it('terminal-mode disables cursorline when cursorlineopt is only set to "line', function()
+  it('terminal-mode disables cursorline when cursorlineopt is only set to "line"', function()
     feed([[<C-\><C-N>]])
     command('setlocal cursorline cursorlineopt=line')
     feed('i')
@@ -80,18 +89,18 @@ describe(':terminal buffer', function()
       feed('<c-\\><c-n>')
       screen:expect([[
         tty ready                                         |
-        {2:^ }                                                 |
+        ^                                                  |
                                                           |*5
       ]])
     end)
 
     it('does not create swap files', function()
-      local swapfile = nvim('exec', 'swapname', true):gsub('\n', '')
+      local swapfile = api.nvim_exec('swapname', true):gsub('\n', '')
       eq(nil, io.open(swapfile))
     end)
 
     it('does not create undofiles files', function()
-      local undofile = nvim('eval', 'undofile(bufname("%"))')
+      local undofile = api.nvim_eval('undofile(bufname("%"))')
       eq(nil, io.open(undofile))
     end)
   end)
@@ -100,7 +109,7 @@ describe(':terminal buffer', function()
     feed('<c-\\><c-n>dd')
     screen:expect([[
       tty ready                                         |
-      {2:^ }                                                 |
+      ^                                                  |
                                                         |*4
       {8:E21: Cannot make changes, 'modifiable' is off}     |
     ]])
@@ -113,7 +122,7 @@ describe(':terminal buffer', function()
     screen:expect([[
       ^tty ready                                         |
       appended tty ready                                |*2
-      {2: }                                                 |
+                                                        |
                                                         |*2
       :let @a = "appended " . @a                        |
     ]])
@@ -133,7 +142,7 @@ describe(':terminal buffer', function()
     screen:expect([[
       ^tty ready                                         |
       appended tty ready                                |
-      {2: }                                                 |
+                                                        |
                                                         |*3
       :put a                                            |
     ]])
@@ -142,7 +151,7 @@ describe(':terminal buffer', function()
     screen:expect([[
       tty ready                                         |
       appended tty ready                                |*2
-      {2: }                                                 |
+                                                        |
                                                         |
       ^                                                  |
       :6put a                                           |
@@ -166,13 +175,11 @@ describe(':terminal buffer', function()
 
   it('handles loss of focus gracefully', function()
     -- Change the statusline to avoid printing the file name, which varies.
-    nvim('set_option_value', 'statusline', '==========', {})
+    api.nvim_set_option_value('statusline', '==========', {})
 
     -- Save the buffer number of the terminal for later testing.
     local tbuf = eval('bufnr("%")')
-    local exitcmd = is_os('win')
-      and "['cmd', '/c', 'exit']"
-      or "['sh', '-c', 'exit']"
+    local exitcmd = is_os('win') and "['cmd', '/c', 'exit']" or "['sh', '-c', 'exit']"
     source([[
     function! SplitWindow(id, data, event)
       new
@@ -180,7 +187,7 @@ describe(':terminal buffer', function()
     endfunction
 
     startinsert
-    call jobstart(]]..exitcmd..[[, {'on_exit': function("SplitWindow")})
+    call jobstart(]] .. exitcmd .. [[, {'on_exit': function("SplitWindow")})
     call feedkeys("\<C-\>", 't')  " vim will expect <C-n>, but be exited out of
                                   " the terminal before it can be entered.
     ]])
@@ -191,39 +198,31 @@ describe(':terminal buffer', function()
       {4:~                                                 }|
       {5:==========                                        }|
       rows: 2, cols: 50                                 |
-      {2: }                                                 |
-      {1:==========                                        }|
+                                                        |
+      {18:==========                                        }|
                                                         |
     ]])
 
     neq(tbuf, eval('bufnr("%")'))
-    feed_command('quit!')  -- Should exit the new window, not the terminal.
+    feed_command('quit!') -- Should exit the new window, not the terminal.
     eq(tbuf, eval('bufnr("%")'))
-  end)
-
-  it('term_close() use-after-free #4393', function()
-    feed_command('terminal yes')
-    feed([[<C-\><C-n>]])
-    feed_command('bdelete!')
   end)
 
   describe('handles confirmations', function()
     it('with :confirm', function()
-      feed_command('terminal')
       feed('<c-\\><c-n>')
       feed_command('confirm bdelete')
-      screen:expect{any='Close "term://'}
+      screen:expect { any = 'Close "term://' }
     end)
 
     it('with &confirm', function()
-      feed_command('terminal')
       feed('<c-\\><c-n>')
       feed_command('bdelete')
-      screen:expect{any='E89'}
+      screen:expect { any = 'E89' }
       feed('<cr>')
       eq('terminal', eval('&buftype'))
       feed_command('set confirm | bdelete')
-      screen:expect{any='Close "term://'}
+      screen:expect { any = 'Close "term://' }
       feed('y')
       neq('terminal', eval('&buftype'))
     end)
@@ -235,7 +234,7 @@ describe(':terminal buffer', function()
     command('set rightleft')
     screen:expect([[
                                                ydaer ytt|
-      {1:a}aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|
+      ^aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|
                                                         |*4
       {3:-- TERMINAL --}                                    |
     ]])
@@ -243,11 +242,15 @@ describe(':terminal buffer', function()
   end)
 
   it('requires bang (!) to close a running job #15402', function()
-    skip(is_os('win'), "Test freezes the CI and makes it time out")
+    skip(is_os('win'), 'Test freezes the CI and makes it time out')
     eq('Vim(wqall):E948: Job still running', exc_exec('wqall'))
     for _, cmd in ipairs({ 'bdelete', '%bdelete', 'bwipeout', 'bunload' }) do
-      matches('^Vim%('..cmd:gsub('%%', '')..'%):E89: term://.*tty%-test.* will be killed %(add %! to override%)$',
-        exc_exec(cmd))
+      matches(
+        '^Vim%('
+          .. cmd:gsub('%%', '')
+          .. '%):E89: term://.*tty%-test.* will be killed %(add %! to override%)$',
+        exc_exec(cmd)
+      )
     end
     command('call jobstop(&channel)')
     assert(0 >= eval('jobwait([&channel], 1000)[0]'))
@@ -264,73 +267,222 @@ describe(':terminal buffer', function()
 
   it('does not segfault when pasting empty register #13955', function()
     feed('<c-\\><c-n>')
-    feed_command('put a')  -- register a is empty
-    helpers.assert_alive()
+    feed_command('put a') -- register a is empty
+    n.assert_alive()
   end)
 
   it([[can use temporary normal mode <c-\><c-o>]], function()
-    eq('t', funcs.mode(1))
+    eq('t', fn.mode(1))
     feed [[<c-\><c-o>]]
-    screen:expect{grid=[[
+    screen:expect {
+      grid = [[
       tty ready                                         |
-      {2:^ }                                                 |
+      ^                                                  |
                                                         |*4
       {3:-- (terminal) --}                                  |
-    ]]}
-    eq('ntT', funcs.mode(1))
+    ]],
+    }
+    eq('ntT', fn.mode(1))
 
     feed [[:let g:x = 17]]
-    screen:expect{grid=[[
+    screen:expect {
+      grid = [[
       tty ready                                         |
-      {2: }                                                 |
+                                                        |
                                                         |*4
       :let g:x = 17^                                     |
-    ]]}
+    ]],
+    }
 
     feed [[<cr>]]
-    screen:expect{grid=[[
+    screen:expect {
+      grid = [[
       tty ready                                         |
-      {1: }                                                 |
+      ^                                                  |
                                                         |*4
       {3:-- TERMINAL --}                                    |
-    ]]}
-    eq('t', funcs.mode(1))
+    ]],
+    }
+    eq('t', fn.mode(1))
   end)
 
   it('writing to an existing file with :w fails #13549', function()
-    eq('Vim(write):E13: File exists (add ! to override)',
-       pcall_err(command, 'write test/functional/fixtures/tty-test.c'))
+    eq(
+      'Vim(write):E13: File exists (add ! to override)',
+      pcall_err(command, 'write test/functional/fixtures/tty-test.c')
+    )
+  end)
+
+  it('external interrupt (got_int) does not hang #20726', function()
+    eq({ mode = 't', blocking = false }, api.nvim_get_mode())
+    command('call timer_start(0, {-> interrupt()})')
+    feed('<Ignore>') -- Add input to separate two RPC requests
+    eq({ mode = 't', blocking = false }, api.nvim_get_mode())
+    feed([[<C-\><C-N>]])
+    eq({ mode = 'nt', blocking = false }, api.nvim_get_mode())
+    command('bd!')
   end)
 end)
 
-describe('No heap-buffer-overflow when using', function()
-  local testfilename = 'Xtestfile-functional-terminal-buffers_spec'
+describe(':terminal buffer', function()
+  before_each(clear)
 
-  before_each(function()
-    write_file(testfilename, "aaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+  it('term_close() use-after-free #4393', function()
+    command('terminal yes')
+    feed('<Ignore>') -- Add input to separate two RPC requests
+    command('bdelete!')
   end)
 
-  after_each(function()
-    os.remove(testfilename)
+  it('emits TermRequest events #26972', function()
+    local term = api.nvim_open_term(0, {})
+    local termbuf = api.nvim_get_current_buf()
+
+    -- Test that <abuf> is the terminal buffer, not the current buffer
+    command('au TermRequest * let g:termbuf = +expand("<abuf>")')
+    command('wincmd p')
+
+    -- cwd will be inserted in a file URI, which cannot contain backs
+    local cwd = t.fix_slashes(fn.getcwd())
+    local parent = cwd:match('^(.+/)')
+    local expected = '\027]7;file://host' .. parent
+    api.nvim_chan_send(term, string.format('%s\027\\', expected))
+    eq(expected, eval('v:termrequest'))
+    eq(termbuf, eval('g:termbuf'))
   end)
 
-  it('termopen(echo) #3161', function()
+  it('TermRequest synchronization #27572', function()
+    command('autocmd! nvim.terminal TermRequest')
+    local term = exec_lua([[
+      _G.input = {}
+      local term = vim.api.nvim_open_term(0, {
+        on_input = function(_, _, _, data)
+          table.insert(_G.input, data)
+        end,
+        force_crlf = false,
+      })
+      vim.api.nvim_create_autocmd('TermRequest', {
+        callback = function(args)
+          if args.data == '\027]11;?' then
+            table.insert(_G.input, '\027]11;rgb:0000/0000/0000\027\\')
+          end
+        end
+      })
+      return term
+    ]])
+    api.nvim_chan_send(term, '\027]11;?\007\027[5n\027]11;?\007\027[5n')
+    eq({
+      '\027]11;rgb:0000/0000/0000\027\\',
+      '\027[0n',
+      '\027]11;rgb:0000/0000/0000\027\\',
+      '\027[0n',
+    }, exec_lua('return _G.input'))
+  end)
+
+  it('no heap-buffer-overflow when using jobstart("echo",{term=true}) #3161', function()
+    local testfilename = 'Xtestfile-functional-terminal-buffers_spec'
+    write_file(testfilename, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+    finally(function()
+      os.remove(testfilename)
+    end)
     feed_command('edit ' .. testfilename)
     -- Move cursor away from the beginning of the line
     feed('$')
-    -- Let termopen() modify the buffer
-    feed_command('call termopen("echo")')
+    -- Let jobstart(…,{term=true}) modify the buffer
+    feed_command([[call jobstart("echo", {'term':v:true})]])
     assert_alive()
     feed_command('bdelete!')
   end)
-end)
 
-describe('No heap-buffer-overflow when', function()
-  it('set nowrap and send long line #11548', function()
+  it('no heap-buffer-overflow when sending long line with nowrap #11548', function()
     feed_command('set nowrap')
     feed_command('autocmd TermOpen * startinsert')
     feed_command('call feedkeys("4000ai\\<esc>:terminal!\\<cr>")')
     assert_alive()
+  end)
+
+  it('truncates the size of grapheme clusters', function()
+    local chan = api.nvim_open_term(0, {})
+    local composing = ('a̳'):sub(2)
+    api.nvim_chan_send(chan, 'a' .. composing:rep(20))
+    retry(nil, nil, function()
+      eq('a' .. composing:rep(14), api.nvim_get_current_line())
+    end)
+  end)
+
+  it('handles extended grapheme clusters', function()
+    local screen = Screen.new(50, 7)
+    feed 'i'
+    local chan = api.nvim_open_term(0, {})
+    api.nvim_chan_send(chan, '🏴‍☠️ yarrr')
+    screen:expect([[
+      🏴‍☠️ yarrr^                                          |
+                                                        |*5
+      {5:-- TERMINAL --}                                    |
+    ]])
+    eq('🏴‍☠️ yarrr', api.nvim_get_current_line())
+  end)
+
+  it('handles split UTF-8 sequences #16245', function()
+    local screen = Screen.new(50, 7)
+    fn.jobstart({ testprg('shell-test'), 'UTF-8' }, { term = true })
+    screen:expect([[
+      ^å                                                 |
+      ref: å̲                                            |
+      1: å̲                                              |
+      2: å̲                                              |
+      3: å̲                                              |
+                                                        |*2
+    ]])
+  end)
+
+  it('handles unprintable chars', function()
+    local screen = Screen.new(50, 7)
+    feed 'i'
+    local chan = api.nvim_open_term(0, {})
+    api.nvim_chan_send(chan, '\239\187\191') -- '\xef\xbb\xbf'
+    screen:expect([[
+      {18:<feff>}^                                            |
+                                                        |*5
+      {5:-- TERMINAL --}                                    |
+    ]])
+    eq('\239\187\191', api.nvim_get_current_line())
+  end)
+
+  it("handles bell respecting 'belloff' and 'visualbell'", function()
+    local screen = Screen.new(50, 7)
+    local chan = api.nvim_open_term(0, {})
+
+    command('set belloff=')
+    api.nvim_chan_send(chan, '\a')
+    screen:expect(function()
+      eq({ true, false }, { screen.bell, screen.visual_bell })
+    end)
+    screen.bell = false
+
+    command('set visualbell')
+    api.nvim_chan_send(chan, '\a')
+    screen:expect(function()
+      eq({ false, true }, { screen.bell, screen.visual_bell })
+    end)
+    screen.visual_bell = false
+
+    command('set belloff=term')
+    api.nvim_chan_send(chan, '\a')
+    screen:expect({
+      condition = function()
+        eq({ false, false }, { screen.bell, screen.visual_bell })
+      end,
+      unchanged = true,
+    })
+
+    command('set belloff=all')
+    api.nvim_chan_send(chan, '\a')
+    screen:expect({
+      condition = function()
+        eq({ false, false }, { screen.bell, screen.visual_bell })
+      end,
+      unchanged = true,
+    })
   end)
 end)
 
@@ -368,14 +520,6 @@ describe('on_lines does not emit out-of-bounds line indexes when', function()
   end)
 end)
 
-it('terminal truncates number of composing characters to 5', function()
-  clear()
-  local chan = meths.open_term(0, {})
-  local composing = ('a̳'):sub(2)
-  meths.chan_send(chan, 'a' .. composing:rep(8))
-  retry(nil, nil, function() eq('a' .. composing:rep(5), meths.get_current_line()) end)
-end)
-
 describe('terminal input', function()
   before_each(function()
     clear()
@@ -403,34 +547,110 @@ end)
 describe('terminal input', function()
   it('sends various special keys with modifiers', function()
     clear()
-    local screen = thelpers.setup_child_nvim({
-      '-u', 'NONE',
-      '-i', 'NONE',
-      '--cmd', 'colorscheme vim',
-      '--cmd', 'set notermguicolors',
-      '--cmd', 'startinsert',
+    local screen = tt.setup_child_nvim({
+      '-u',
+      'NONE',
+      '-i',
+      'NONE',
+      '--cmd',
+      'colorscheme vim',
+      '--cmd',
+      'set notermguicolors',
+      '-c',
+      'while 1 | redraw | echo keytrans(getcharstr(-1, #{simplify: 0})) | endwhile',
     })
-    screen:expect{grid=[[
-      {1: }                                                 |
+    screen:expect([[
+      ^                                                  |
       {4:~                                                 }|*3
-      {5:[No Name]                       0,1            All}|
-      {3:-- INSERT --}                                      |
+      {5:[No Name]                       0,0-1          All}|
+                                                        |
       {3:-- TERMINAL --}                                    |
-    ]]}
-    for _, key in ipairs({
-      '<M-Tab>', '<M-CR>', '<M-Esc>',
-      '<BS>', '<S-Tab>', '<Insert>', '<Del>', '<PageUp>', '<PageDown>',
-      '<S-Up>', '<C-Up>', '<Up>', '<S-Down>', '<C-Down>', '<Down>',
-      '<S-Left>', '<C-Left>', '<Left>', '<S-Right>', '<C-Right>', '<Right>',
-      '<S-Home>', '<C-Home>', '<Home>', '<S-End>', '<C-End>', '<End>',
-      '<C-LeftMouse>', '<C-LeftRelease>', '<2-LeftMouse>', '<2-LeftRelease>',
-      '<S-RightMouse>', '<S-RightRelease>', '<2-RightMouse>', '<2-RightRelease>',
-      '<M-MiddleMouse>', '<M-MiddleRelease>', '<2-MiddleMouse>', '<2-MiddleRelease>',
-      '<S-ScrollWheelUp>', '<S-ScrollWheelDown>', '<ScrollWheelUp>', '<ScrollWheelDown>',
-      '<S-ScrollWheelLeft>', '<S-ScrollWheelRight>', '<ScrollWheelLeft>', '<ScrollWheelRight>',
-    }) do
-      feed('<CR><C-V>' .. key)
-      retry(nil, nil, function() eq(key, meths.get_current_line()) end)
+    ]])
+    local keys = {
+      '<Tab>',
+      '<CR>',
+      '<Esc>',
+      '<M-Tab>',
+      '<M-CR>',
+      '<M-Esc>',
+      '<BS>',
+      '<S-Tab>',
+      '<Insert>',
+      '<Del>',
+      '<PageUp>',
+      '<PageDown>',
+      '<S-Up>',
+      '<C-Up>',
+      '<Up>',
+      '<S-Down>',
+      '<C-Down>',
+      '<Down>',
+      '<S-Left>',
+      '<C-Left>',
+      '<Left>',
+      '<S-Right>',
+      '<C-Right>',
+      '<Right>',
+      '<S-Home>',
+      '<C-Home>',
+      '<Home>',
+      '<S-End>',
+      '<C-End>',
+      '<End>',
+      '<C-LeftMouse><0,0>',
+      '<C-LeftDrag><0,1>',
+      '<C-LeftRelease><0,1>',
+      '<2-LeftMouse><0,1>',
+      '<2-LeftDrag><0,0>',
+      '<2-LeftRelease><0,0>',
+      '<M-MiddleMouse><0,0>',
+      '<M-MiddleDrag><0,1>',
+      '<M-MiddleRelease><0,1>',
+      '<2-MiddleMouse><0,1>',
+      '<2-MiddleDrag><0,0>',
+      '<2-MiddleRelease><0,0>',
+      '<S-RightMouse><0,0>',
+      '<S-RightDrag><0,1>',
+      '<S-RightRelease><0,1>',
+      '<2-RightMouse><0,1>',
+      '<2-RightDrag><0,0>',
+      '<2-RightRelease><0,0>',
+      '<S-X1Mouse><0,0>',
+      '<S-X1Drag><0,1>',
+      '<S-X1Release><0,1>',
+      '<2-X1Mouse><0,1>',
+      '<2-X1Drag><0,0>',
+      '<2-X1Release><0,0>',
+      '<S-X2Mouse><0,0>',
+      '<S-X2Drag><0,1>',
+      '<S-X2Release><0,1>',
+      '<2-X2Mouse><0,1>',
+      '<2-X2Drag><0,0>',
+      '<2-X2Release><0,0>',
+      '<S-ScrollWheelUp>',
+      '<S-ScrollWheelDown>',
+      '<ScrollWheelUp>',
+      '<ScrollWheelDown>',
+      '<S-ScrollWheelLeft>',
+      '<S-ScrollWheelRight>',
+      '<ScrollWheelLeft>',
+      '<ScrollWheelRight>',
+    }
+    -- FIXME: The escape sequence to enable kitty keyboard mode doesn't work on Windows
+    if not is_os('win') then
+      table.insert(keys, '<C-I>')
+      table.insert(keys, '<C-M>')
+      table.insert(keys, '<C-[>')
+    end
+    for _, key in ipairs(keys) do
+      feed(key)
+      screen:expect(([[
+                                                          |
+        {4:~                                                 }|*3
+        {5:[No Name]                       0,0-1          All}|
+        %s^ {MATCH: *}|
+        {3:-- TERMINAL --}                                    |
+      ]]):format(key:gsub('<%d+,%d+>$', '')))
     end
   end)
 end)
@@ -443,8 +663,8 @@ if is_os('win') then
       clear()
       feed_command('set modifiable swapfile undolevels=20')
       poke_eventloop()
-      local cmd = { "cmd.exe", "/K", "PROMPT=$g$s" }
-      screen = thelpers.screen_setup(nil, cmd)
+      local cmd = { 'cmd.exe', '/K', 'PROMPT=$g$s' }
+      screen = tt.setup_screen(nil, cmd)
     end)
 
     it('"put" operator sends data normally', function()
@@ -458,7 +678,7 @@ if is_os('win') then
       > :: appended :: tty ready                        |
       > :: tty ready                                    |
       > :: appended :: tty ready                        |
-      ^> {2: }                                               |
+      ^>                                                 |
       :let @a = @a . "\n:: appended " . @a . "\n\n"     |
       ]])
       -- operator count is also taken into consideration
@@ -469,7 +689,7 @@ if is_os('win') then
       > :: appended :: tty ready                        |
       > :: tty ready                                    |
       > :: appended :: tty ready                        |
-      ^> {2: }                                               |
+      ^>                                                 |
       :let @a = @a . "\n:: appended " . @a . "\n\n"     |
       ]])
     end)
@@ -483,7 +703,7 @@ if is_os('win') then
                                                         |
       > :: tty ready                                    |
       > :: appended :: tty ready                        |
-      > {2: }                                               |
+      >                                                 |
                                                         |
       ^                                                  |
       :put a                                            |
@@ -496,40 +716,51 @@ if is_os('win') then
       > :: appended :: tty ready                        |
       > :: tty ready                                    |
       > :: appended :: tty ready                        |
-      ^> {2: }                                               |
+      ^>                                                 |
       :6put a                                           |
       ]])
     end)
   end)
 end
 
-describe('termopen()', function()
+describe('termopen() (deprecated alias to `jobstart(…,{term=true})`)', function()
   before_each(clear)
 
   it('disallowed when textlocked and in cmdwin buffer', function()
     command("autocmd TextYankPost <buffer> ++once call termopen('foo')")
-    matches("Vim%(call%):E565: Not allowed to change text or change window$",
-      pcall_err(command, "normal! yy"))
+    matches(
+      'Vim%(call%):E565: Not allowed to change text or change window$',
+      pcall_err(command, 'normal! yy')
+    )
 
-    feed("q:")
-    eq("Vim:E11: Invalid in command-line window; <CR> executes, CTRL-C quits",
-      pcall_err(funcs.termopen, "bar"))
+    feed('q:')
+    eq(
+      'Vim:E11: Invalid in command-line window; <CR> executes, CTRL-C quits',
+      pcall_err(fn.termopen, 'bar')
+    )
   end)
 
   describe('$COLORTERM value', function()
-    if skip(is_os('win'), 'Not applicable for Windows') then return end
+    if skip(is_os('win'), 'Not applicable for Windows') then
+      return
+    end
 
     before_each(function()
       -- Outer value should never be propagated to :terminal
-      funcs.setenv('COLORTERM', 'wrongvalue')
+      fn.setenv('COLORTERM', 'wrongvalue')
     end)
 
     local function test_term_colorterm(expected, opts)
       local screen = Screen.new(50, 4)
-      screen:attach()
-      funcs.termopen({
-        nvim_prog, '-u', 'NONE', '-i', 'NONE', '--headless',
-        '-c', 'echo $COLORTERM | quit',
+      fn.termopen({
+        nvim_prog,
+        '-u',
+        'NONE',
+        '-i',
+        'NONE',
+        '--headless',
+        '-c',
+        'echo $COLORTERM | quit',
       }, opts)
       screen:expect(([[
         ^%s{MATCH:%%s+}|

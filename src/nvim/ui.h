@@ -3,32 +3,21 @@
 #include <stdint.h>  // IWYU pragma: keep
 
 #include "nvim/api/private/defs.h"  // IWYU pragma: keep
-#include "nvim/event/multiqueue.h"
+#include "nvim/event/defs.h"
 #include "nvim/grid_defs.h"  // IWYU pragma: keep
 #include "nvim/highlight_defs.h"  // IWYU pragma: keep
 #include "nvim/macros_defs.h"
 #include "nvim/types_defs.h"  // IWYU pragma: keep
-#include "nvim/ui_defs.h"  // IWYU pragma: export
-
-/// Keep in sync with UIExtension in ui_defs.h
-EXTERN const char *ui_ext_names[] INIT( = {
-  "ext_cmdline",
-  "ext_popupmenu",
-  "ext_tabline",
-  "ext_wildmenu",
-  "ext_messages",
-  "ext_linegrid",
-  "ext_multigrid",
-  "ext_hlstate",
-  "ext_termcolors",
-  "_debug_float",
-});
+#include "nvim/ui_defs.h"  // IWYU pragma: keep
 
 // uncrustify:off
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "ui.h.generated.h"
-# include "ui_events_call.h.generated.h"  // IWYU pragma: export
+# include "ui_events_call.h.generated.h"
+EXTERN Array noargs INIT(= ARRAY_DICT_INIT);
 #endif
 // uncrustify:on
 
-EXTERN MultiQueue *resize_events;
+// vim.ui_attach() namespace of currently executed callback.
+EXTERN uint32_t ui_event_ns_id INIT( = 0);
+EXTERN MultiQueue *resize_events INIT( = NULL);

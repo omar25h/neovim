@@ -1,10 +1,10 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
-#include "nvim/buffer_defs.h"  // IWYU pragma: keep
-#include "nvim/eval/typval_defs.h"
+#include "nvim/eval/typval_defs.h"  // IWYU pragma: keep
 #include "nvim/normal_defs.h"  // IWYU pragma: keep
 #include "nvim/os/time_defs.h"
 #include "nvim/pos_defs.h"
@@ -75,7 +75,7 @@ enum {
 ///
 /// @note Only offset for the last search pattern is used, not for the last
 ///       substitute pattern.
-typedef struct soffset {
+typedef struct {
   char dir;     ///< Search direction: forward ('/') or backward ('?')
   bool line;    ///< True if search has line offset.
   bool end;     ///< True if search sets cursor at the end.
@@ -83,13 +83,14 @@ typedef struct soffset {
 } SearchOffset;
 
 /// Structure containing last search pattern and its attributes.
-typedef struct spat {
+typedef struct {
   char *pat;            ///< The pattern (in allocated memory) or NULL.
+  size_t patlen;        ///< The length of the pattern (0 if pat is NULL).
   bool magic;           ///< Magicness of the pattern.
   bool no_scs;          ///< No smartcase for this pattern.
   Timestamp timestamp;  ///< Time of the last change.
   SearchOffset off;     ///< Pattern offset.
-  dict_T *additional_data;  ///< Additional data from ShaDa file.
+  AdditionalData *additional_data;  ///< Additional data from ShaDa file.
 } SearchPattern;
 
 /// Optional extra arguments for searchit().
@@ -100,7 +101,7 @@ typedef struct {
   int sa_wrapped;    ///< search wrapped around
 } searchit_arg_T;
 
-typedef struct searchstat {
+typedef struct {
   int cur;      // current position of found words
   int cnt;      // total count of found words
   bool exact_match;    // true if matched exactly on specified position

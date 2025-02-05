@@ -8,30 +8,38 @@
 #include <string.h>
 
 #include "nvim/ascii_defs.h"
+#include "nvim/buffer_defs.h"
 #include "nvim/charset.h"
 #include "nvim/cmdexpand_defs.h"
 #include "nvim/debugger.h"
 #include "nvim/drawscreen.h"
+#include "nvim/errors.h"
 #include "nvim/eval.h"
 #include "nvim/eval/typval.h"
+#include "nvim/eval/typval_defs.h"
 #include "nvim/ex_cmds_defs.h"
 #include "nvim/ex_docmd.h"
 #include "nvim/ex_getln.h"
 #include "nvim/fileio.h"
 #include "nvim/garray.h"
+#include "nvim/garray_defs.h"
 #include "nvim/getchar.h"
-#include "nvim/gettext.h"
+#include "nvim/getchar_defs.h"
+#include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
 #include "nvim/keycodes.h"
 #include "nvim/macros_defs.h"
 #include "nvim/memory.h"
 #include "nvim/message.h"
 #include "nvim/os/os.h"
+#include "nvim/os/os_defs.h"
 #include "nvim/path.h"
 #include "nvim/pos_defs.h"
 #include "nvim/regexp.h"
 #include "nvim/runtime.h"
+#include "nvim/runtime_defs.h"
 #include "nvim/state_defs.h"
+#include "nvim/types_defs.h"
 #include "nvim/vim_defs.h"
 
 /// batch mode debugging: don't save and restore typeahead.
@@ -102,13 +110,11 @@ void do_debug(char *cmd)
   }
   if (debug_oldval != NULL) {
     smsg(0, _("Oldval = \"%s\""), debug_oldval);
-    xfree(debug_oldval);
-    debug_oldval = NULL;
+    XFREE_CLEAR(debug_oldval);
   }
   if (debug_newval != NULL) {
     smsg(0, _("Newval = \"%s\""), debug_newval);
-    xfree(debug_newval);
-    debug_newval = NULL;
+    XFREE_CLEAR(debug_newval);
   }
   char *sname = estack_sfile(ESTACK_NONE);
   if (sname != NULL) {
@@ -145,8 +151,7 @@ void do_debug(char *cmd)
     debug_break_level = -1;
 
     xfree(cmdline);
-    cmdline = getcmdline_prompt('>', NULL, 0, EXPAND_NOTHING, NULL,
-                                CALLBACK_NONE);
+    cmdline = getcmdline_prompt('>', NULL, 0, EXPAND_NOTHING, NULL, CALLBACK_NONE, false, NULL);
 
     debug_break_level = n;
     if (typeahead_saved) {
@@ -283,7 +288,7 @@ void do_debug(char *cmd)
       // don't debug this command
       n = debug_break_level;
       debug_break_level = -1;
-      (void)do_cmdline(cmdline, getexline, NULL, DOCMD_VERBOSE|DOCMD_EXCRESET);
+      do_cmdline(cmdline, getexline, NULL, DOCMD_VERBOSE|DOCMD_EXCRESET);
       debug_break_level = n;
     }
     lines_left = Rows - 1;
@@ -406,7 +411,7 @@ static linenr_T debug_breakpoint_lnum;
 /// debug_skipped_name is then set to the source name in the breakpoint case. If
 /// a skipped command decides itself that a debug prompt should be displayed, it
 /// can do so by calling dbg_check_skipped().
-static int debug_skipped;
+static bool debug_skipped;
 static char *debug_skipped_name;
 
 /// Go to debug mode when a breakpoint was encountered or "ex_nesting_level" is
@@ -461,7 +466,7 @@ bool dbg_check_skipped(exarg_T *eap)
 
   // Save the value of got_int and reset it.  We don't want a previous
   // interruption cause flushing the input buffer.
-  int prev_got_int = got_int;
+  bool prev_got_int = got_int;
   got_int = false;
   debug_breakpoint_name = debug_skipped_name;
   // eap->skip is true
@@ -786,7 +791,6 @@ static linenr_T debuggy_find(bool file, char *fname, linenr_T after, garray_T *g
   struct debuggy *bp;
   linenr_T lnum = 0;
   char *name = fname;
-  int prev_got_int;
 
   // Return quickly when there are no breakpoints.
   if (GA_EMPTY(gap)) {
@@ -811,7 +815,7 @@ static linenr_T debuggy_find(bool file, char *fname, linenr_T after, garray_T *g
       // Save the value of got_int and reset it.  We don't want a
       // previous interruption cancel matching, only hitting CTRL-C
       // while matching should abort it.
-      prev_got_int = got_int;
+      bool prev_got_int = got_int;
       got_int = false;
       if (vim_regexec_prog(&bp->dbg_prog, false, name, 0)) {
         lnum = bp->dbg_lnum;

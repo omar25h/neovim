@@ -5,8 +5,7 @@
 
 #include "nvim/eval/typval_defs.h"
 #include "nvim/ex_eval_defs.h"
-#include "nvim/normal_defs.h"
-#include "nvim/pos_defs.h"
+#include "nvim/os/time_defs.h"
 #include "nvim/regexp_defs.h"
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
@@ -95,39 +94,10 @@ typedef struct exarg exarg_T;
 typedef void (*ex_func_T)(exarg_T *eap);
 typedef int (*ex_preview_func_T)(exarg_T *eap, int cmdpreview_ns, handle_T cmdpreview_bufnr);
 
-// NOTE: These possible could be removed and changed so that
-// Callback could take a "command" style string, and simply
-// execute that (instead of it being a function).
-//
-// But it's still a bit weird to do that.
-//
-// Another option would be that we just make a callback reference to
-// "execute($INPUT)" or something like that, so whatever the user
-// sends in via autocmds is just executed via this.
-//
-// However, that would probably have some performance cost (probably
-// very marginal, but still some cost either way).
-typedef enum {
-  CALLABLE_NONE,
-  CALLABLE_EX,
-  CALLABLE_CB,
-} AucmdExecutableType;
-
-typedef struct aucmd_executable_t AucmdExecutable;
-struct aucmd_executable_t {
-  AucmdExecutableType type;
-  union {
-    char *cmd;
-    Callback cb;
-  } callable;
-};
-
-#define AUCMD_EXECUTABLE_INIT { .type = CALLABLE_NONE }
-
 typedef char *(*LineGetter)(int, void *, int, bool);
 
 /// Structure for command definition.
-typedef struct cmdname {
+typedef struct {
   char *cmd_name;                      ///< Name of the command.
   ex_func_T cmd_func;                  ///< Function with implementation of this command.
   ex_preview_func_T cmd_preview_func;  ///< Preview callback function of this command.
@@ -168,8 +138,8 @@ struct exarg {
   int bad_char;                 ///< BAD_KEEP, BAD_DROP or replacement byte
   int useridx;                  ///< user command index
   char *errmsg;                 ///< returned error message
-  LineGetter getline;           ///< Function used to get the next line
-  void *cookie;                 ///< argument for getline()
+  LineGetter ea_getline;        ///< function used to get the next line
+  void *cookie;                 ///< argument for ea_getline()
   cstack_T *cstack;             ///< condition stack for ":if" etc.
 };
 
@@ -229,3 +199,10 @@ typedef struct {
     bool bar;
   } magic;
 } CmdParseInfo;
+
+/// Previous :substitute replacement string definition
+typedef struct {
+  char *sub;            ///< Previous replacement string.
+  Timestamp timestamp;  ///< Time when it was last set.
+  AdditionalData *additional_data;  ///< Additional data left from ShaDa file.
+} SubReplacementString;

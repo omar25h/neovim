@@ -4,8 +4,7 @@
 #include <stdint.h>  // IWYU pragma: keep
 
 #include "nvim/eval/typval_defs.h"  // IWYU pragma: keep
-#include "nvim/getchar_defs.h"  // IWYU pragma: export
-#include "nvim/os/fileio_defs.h"
+#include "nvim/getchar_defs.h"  // IWYU pragma: keep
 #include "nvim/types_defs.h"  // IWYU pragma: keep
 
 /// Argument for flush_buffers().
@@ -16,9 +15,6 @@ typedef enum {
 } flush_buffers_T;
 
 enum { NSCRIPT = 15, };  ///< Maximum number of streams to read script from
-
-/// Streams to read script from
-extern FileDescriptor *scriptin[NSCRIPT];
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "getchar.h.generated.h"

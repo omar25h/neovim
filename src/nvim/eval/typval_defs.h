@@ -2,10 +2,11 @@
 
 #include <inttypes.h>
 #include <limits.h>
+#include <stdbool.h>
 
 #include "nvim/garray_defs.h"
 #include "nvim/hashtab_defs.h"
-#include "nvim/lib/queue.h"
+#include "nvim/lib/queue_defs.h"
 #include "nvim/pos_defs.h"
 #include "nvim/types_defs.h"
 
@@ -74,7 +75,7 @@ typedef struct {
 #define CALLBACK_NONE ((Callback)CALLBACK_INIT)
 
 /// Structure holding dictionary watcher
-typedef struct dict_watcher {
+typedef struct {
   Callback callback;
   char *key_pattern;
   size_t key_pattern_len;
@@ -108,7 +109,7 @@ typedef enum {
   VAR_STRING,       ///< String, .v_string is used.
   VAR_FUNC,         ///< Function reference, .v_string is used as function name.
   VAR_LIST,         ///< List, .v_list is used.
-  VAR_DICT,         ///< Dictionary, .v_dict is used.
+  VAR_DICT,         ///< Dict, .v_dict is used.
   VAR_FLOAT,        ///< Floating-point value, .v_float is used.
   VAR_BOOL,         ///< true, false
   VAR_SPECIAL,      ///< Special value (null), .v_special is used.
@@ -140,7 +141,7 @@ typedef struct {
     float_T v_float;            ///< Floating-point number, for VAR_FLOAT.
     char *v_string;             ///< String, for VAR_STRING and VAR_FUNC, can be NULL.
     list_T *v_list;             ///< List for VAR_LIST, can be NULL.
-    dict_T *v_dict;             ///< Dictionary for VAR_DICT, can be NULL.
+    dict_T *v_dict;             ///< Dict for VAR_DICT, can be NULL.
     partial_T *v_partial;       ///< Closure: function with args.
     blob_T *v_blob;             ///< Blob for VAR_BLOB, can be NULL.
   } vval;                       ///< Actual value.
@@ -258,7 +259,7 @@ struct dictvar_S {
   dict_T *dv_copydict;    ///< Copied dict used by deepcopy().
   dict_T *dv_used_next;   ///< Next dictionary in used dictionaries list.
   dict_T *dv_used_prev;   ///< Previous dictionary in used dictionaries list.
-  QUEUE watchers;         ///< Dictionary key watchers set by user code.
+  QUEUE watchers;         ///< Dict key watchers set by user code.
 
   LuaRef lua_table_ref;
 };
@@ -356,13 +357,15 @@ struct ufunc {
   funccall_T *uf_scoped;       ///< l: local variables for closure
   char *uf_name_exp;    ///< if "uf_name[]" starts with SNR the name with
                         ///< "<SNR>" as a string, otherwise NULL
-  char uf_name[];    ///< Name of function (actual size equals name);
-                     ///< can start with <SNR>123_
-                     ///< (<SNR> is K_SPECIAL KS_EXTRA KE_SNR)
+  size_t uf_namelen;    ///< Length of uf_name (excluding the NUL)
+  char uf_name[];       ///< Name of function (actual size equals name);
+                        ///< can start with <SNR>123_
+                        ///< (<SNR> is K_SPECIAL KS_EXTRA KE_SNR)
 };
 
 struct partial_S {
   int pt_refcount;    ///< Reference count.
+  int pt_copyID;
   char *pt_name;      ///< Function name; when NULL use pt_func->name.
   ufunc_T *pt_func;   ///< Function pointer; when NULL lookup function with pt_name.
   bool pt_auto;       ///< When true the partial was created by using dict.member

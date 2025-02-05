@@ -1,6 +1,9 @@
-local G = require('vim.lsp._snippet_grammar')
-local snippet_group = vim.api.nvim_create_augroup('vim/snippet', {})
-local snippet_ns = vim.api.nvim_create_namespace('vim/snippet')
+local G = vim.lsp._snippet_grammar
+local snippet_group = vim.api.nvim_create_augroup('nvim.snippet', {})
+local snippet_ns = vim.api.nvim_create_namespace('nvim.snippet')
+local hl_group = 'SnippetTabstop'
+local jump_forward_key = '<tab>'
+local jump_backward_key = '<s-tab>'
 
 --- Returns the 0-based cursor position.
 ---
@@ -100,7 +103,7 @@ local function get_extmark_range(bufnr, extmark_id)
   return { mark[1], mark[2], mark[3].end_row, mark[3].end_col }
 end
 
---- @class vim.snippet.Tabstop
+--- @class (private) vim.snippet.Tabstop
 --- @field extmark_id integer
 --- @field bufnr integer
 --- @field index integer
@@ -117,11 +120,11 @@ local Tabstop = {}
 --- @return vim.snippet.Tabstop
 function Tabstop.new(index, bufnr, range, choices)
   local extmark_id = vim.api.nvim_buf_set_extmark(bufnr, snippet_ns, range[1], range[2], {
-    right_gravity = false,
+    right_gravity = true,
     end_right_gravity = true,
     end_line = range[3],
     end_col = range[4],
-    hl_group = 'SnippetTabstop',
+    hl_group = hl_group,
   })
 
   local self = setmetatable(
@@ -161,11 +164,28 @@ function Tabstop:set_text(text)
   vim.api.nvim_buf_set_text(self.bufnr, range[1], range[2], range[3], range[4], text_to_lines(text))
 end
 
---- @class vim.snippet.Session
+--- Sets the right gravity of the tabstop's extmark.
+---
+--- @package
+--- @param right_gravity boolean
+function Tabstop:set_right_gravity(right_gravity)
+  local range = self:get_range()
+  self.extmark_id = vim.api.nvim_buf_set_extmark(self.bufnr, snippet_ns, range[1], range[2], {
+    right_gravity = right_gravity,
+    end_right_gravity = true,
+    end_line = range[3],
+    end_col = range[4],
+    hl_group = hl_group,
+  })
+end
+
+--- @class (private) vim.snippet.Session
 --- @field bufnr integer
 --- @field extmark_id integer
 --- @field tabstops table<integer, vim.snippet.Tabstop[]>
 --- @field current_tabstop vim.snippet.Tabstop
+--- @field tab_keymaps { i: table<string, any>?, s: table<string, any>? }
+--- @field shift_tab_keymaps { i: table<string, any>?, s: table<string, any>? }
 local Session = {}
 
 --- Creates a new snippet session in the current buffer.
@@ -181,6 +201,8 @@ function Session.new(bufnr, snippet_extmark, tabstop_data)
     extmark_id = snippet_extmark,
     tabstops = {},
     current_tabstop = Tabstop.new(0, bufnr, { 0, 0, 0, 0 }),
+    tab_keymaps = { i = nil, s = nil },
+    shift_tab_keymaps = { i = nil, s = nil },
   }, { __index = Session })
 
   -- Create the tabstops.
@@ -191,7 +213,62 @@ function Session.new(bufnr, snippet_extmark, tabstop_data)
     end
   end
 
+  self:set_keymaps()
+
   return self
+end
+
+--- Sets the snippet navigation keymaps.
+---
+--- @package
+function Session:set_keymaps()
+  local function maparg(key, mode)
+    local map = vim.fn.maparg(key, mode, false, true) --[[ @as table ]]
+    if not vim.tbl_isempty(map) and map.buffer == 1 then
+      return map
+    else
+      return nil
+    end
+  end
+
+  local function set(jump_key, direction)
+    vim.keymap.set({ 'i', 's' }, jump_key, function()
+      return vim.snippet.active({ direction = direction })
+          and '<cmd>lua vim.snippet.jump(' .. direction .. ')<cr>'
+        or jump_key
+    end, { expr = true, silent = true, buffer = self.bufnr })
+  end
+
+  self.tab_keymaps = {
+    i = maparg(jump_forward_key, 'i'),
+    s = maparg(jump_forward_key, 's'),
+  }
+  self.shift_tab_keymaps = {
+    i = maparg(jump_backward_key, 'i'),
+    s = maparg(jump_backward_key, 's'),
+  }
+  set(jump_forward_key, 1)
+  set(jump_backward_key, -1)
+end
+
+--- Restores/deletes the keymaps used for snippet navigation.
+---
+--- @package
+function Session:restore_keymaps()
+  local function restore(keymap, lhs, mode)
+    if keymap then
+      vim._with({ buf = self.bufnr }, function()
+        vim.fn.mapset(keymap)
+      end)
+    else
+      vim.api.nvim_buf_del_keymap(self.bufnr, mode, lhs)
+    end
+  end
+
+  restore(self.tab_keymaps.i, jump_forward_key, 'i')
+  restore(self.tab_keymaps.s, jump_forward_key, 's')
+  restore(self.shift_tab_keymaps.i, jump_backward_key, 'i')
+  restore(self.shift_tab_keymaps.s, jump_backward_key, 's')
 end
 
 --- Returns the destination tabstop index when jumping in the given direction.
@@ -218,8 +295,17 @@ function Session:get_dest_index(direction)
   end
 end
 
---- @class vim.snippet.Snippet
---- @field private _session? vim.snippet.Session
+--- Sets the right gravity of the tabstop group with the given index.
+---
+--- @package
+--- @param index integer
+--- @param right_gravity boolean
+function Session:set_group_gravity(index, right_gravity)
+  for _, tabstop in ipairs(self.tabstops[index]) do
+    tabstop:set_right_gravity(right_gravity)
+  end
+end
+
 local M = { session = nil }
 
 --- Displays the choices for the given tabstop as completion items.
@@ -229,9 +315,10 @@ local function display_choices(tabstop)
   assert(tabstop.choices, 'Tabstop has no choices')
 
   local start_col = tabstop:get_range()[2] + 1
-  local matches = vim.iter.map(function(choice)
-    return { word = choice }
-  end, tabstop.choices)
+  local matches = {} --- @type table[]
+  for _, choice in ipairs(tabstop.choices) do
+    matches[#matches + 1] = { word = choice }
+  end
 
   vim.defer_fn(function()
     vim.fn.complete(start_col, matches)
@@ -289,7 +376,7 @@ local function select_tabstop(tabstop)
     move_cursor_to(range[1] + 1, range[2] + 1)
     feedkeys('v')
     move_cursor_to(range[3] + 1, range[4])
-    feedkeys('o<c-g>')
+    feedkeys('o<c-g><c-r>_')
   end
 end
 
@@ -317,7 +404,7 @@ local function setup_autocmds(bufnr)
         or cursor_row > snippet_range[3]
         or (cursor_row == snippet_range[3] and cursor_col > snippet_range[4])
       then
-        M.exit()
+        M.stop()
         return true
       end
 
@@ -336,7 +423,7 @@ local function setup_autocmds(bufnr)
       end
 
       -- The cursor is either not on a tabstop or we reached the end, so exit the session.
-      M.exit()
+      M.stop()
       return true
     end,
   })
@@ -352,7 +439,7 @@ local function setup_autocmds(bufnr)
         (snippet_range[1] == snippet_range[3] and snippet_range[2] == snippet_range[4])
         or snippet_range[3] + 1 > vim.fn.line('$')
       then
-        M.exit()
+        M.stop()
       end
 
       if not M.active() then
@@ -369,13 +456,22 @@ local function setup_autocmds(bufnr)
       end
     end,
   })
+
+  vim.api.nvim_create_autocmd('BufLeave', {
+    group = snippet_group,
+    desc = 'Stop the snippet session when leaving the buffer',
+    buffer = bufnr,
+    callback = function()
+      M.stop()
+    end,
+  })
 end
 
 --- Expands the given snippet text.
 --- Refer to https://microsoft.github.io/language-server-protocol/specification/#snippet_syntax
 --- for the specification of valid input.
 ---
---- Tabstops are highlighted with hl-SnippetTabstop.
+--- Tabstops are highlighted with |hl-SnippetTabstop|.
 ---
 --- @param input string
 function M.expand(input)
@@ -418,20 +514,25 @@ function M.expand(input)
     local snippet_lines = text_to_lines(snippet_text)
     -- Get the base indentation based on the current line and the last line of the snippet.
     if #snippet_lines > 0 then
-      base_indent = base_indent .. (snippet_lines[#snippet_lines]:match('(^%s*)%S') or '') --- @type string
+      base_indent = base_indent .. (snippet_lines[#snippet_lines]:match('(^%s+)%S') or '') --- @type string
     end
 
-    local lines = vim.iter.map(function(i, line)
+    local shiftwidth = vim.fn.shiftwidth()
+    local curbuf = vim.api.nvim_get_current_buf()
+    local expandtab = vim.bo[curbuf].expandtab
+
+    local lines = {} --- @type string[]
+    for i, line in ipairs(text_to_lines(text)) do
       -- Replace tabs by spaces.
-      if vim.o.expandtab then
-        line = line:gsub('\t', (' '):rep(vim.fn.shiftwidth())) --- @type string
+      if expandtab then
+        line = line:gsub('\t', (' '):rep(shiftwidth)) --- @type string
       end
       -- Add the base indentation.
       if i > 1 then
         line = base_indent .. line
       end
-      return line
-    end, ipairs(text_to_lines(text)))
+      lines[#lines + 1] = line
+    end
 
     table.insert(snippet_text, table.concat(lines, '\n'))
   end
@@ -501,38 +602,14 @@ end
 
 --- @alias vim.snippet.Direction -1 | 1
 
---- Returns `true` if there is an active snippet which can be jumped in the given direction.
---- You can use this function to navigate a snippet as follows:
+--- Jumps to the next (or previous) placeholder in the current snippet, if possible.
+---
+--- For example, map `<Tab>` to jump while a snippet is active:
 ---
 --- ```lua
 --- vim.keymap.set({ 'i', 's' }, '<Tab>', function()
----    if vim.snippet.jumpable(1) then
----      return '<cmd>lua vim.snippet.jump(1)<cr>'
----    else
----      return '<Tab>'
----    end
----  end, { expr = true })
---- ```
----
---- @param direction (vim.snippet.Direction) Navigation direction. -1 for previous, 1 for next.
---- @return boolean
-function M.jumpable(direction)
-  if not M.active() then
-    return false
-  end
-
-  return M._session:get_dest_index(direction) ~= nil
-end
-
---- Jumps within the active snippet in the given direction.
---- If the jump isn't possible, the function call does nothing.
----
---- You can use this function to navigate a snippet as follows:
----
---- ```lua
---- vim.keymap.set({ 'i', 's' }, '<Tab>', function()
----    if vim.snippet.jumpable(1) then
----      return '<cmd>lua vim.snippet.jump(1)<cr>'
+---    if vim.snippet.active({ direction = 1 }) then
+---      return '<Cmd>lua vim.snippet.jump(1)<CR>'
 ---    else
 ---      return '<Tab>'
 ---    end
@@ -560,25 +637,59 @@ function M.jump(direction)
   -- Clear the autocommands so that we can move the cursor freely while selecting the tabstop.
   vim.api.nvim_clear_autocmds({ group = snippet_group, buffer = M._session.bufnr })
 
+  -- Deactivate expansion of the current tabstop.
+  M._session:set_group_gravity(M._session.current_tabstop.index, true)
+
   M._session.current_tabstop = dest
   select_tabstop(dest)
+
+  -- Activate expansion of the destination tabstop.
+  M._session:set_group_gravity(dest.index, false)
 
   -- Restore the autocommands.
   setup_autocmds(M._session.bufnr)
 end
 
---- Returns `true` if there's an active snippet in the current buffer.
+--- @class vim.snippet.ActiveFilter
+--- @field direction vim.snippet.Direction Navigation direction. -1 for previous, 1 for next.
+
+--- Returns `true` if there's an active snippet in the current buffer,
+--- applying the given filter if provided.
 ---
+--- You can use this function to navigate a snippet as follows:
+---
+--- ```lua
+--- vim.keymap.set({ 'i', 's' }, '<Tab>', function()
+---    if vim.snippet.active({ direction = 1 }) then
+---      return '<Cmd>lua vim.snippet.jump(1)<CR>'
+---    else
+---      return '<Tab>'
+---    end
+---  end, { expr = true })
+--- ```
+---
+--- @param filter? vim.snippet.ActiveFilter Filter to constrain the search with:
+--- - `direction` (vim.snippet.Direction): Navigation direction. Will return `true` if the snippet
+--- can be jumped in the given direction.
 --- @return boolean
-function M.active()
-  return M._session ~= nil and M._session.bufnr == vim.api.nvim_get_current_buf()
+function M.active(filter)
+  local active = M._session ~= nil and M._session.bufnr == vim.api.nvim_get_current_buf()
+
+  local in_direction = true
+  if active and filter and filter.direction then
+    in_direction = M._session:get_dest_index(filter.direction) ~= nil
+  end
+
+  return active and in_direction
 end
 
 --- Exits the current snippet.
-function M.exit()
+function M.stop()
   if not M.active() then
     return
   end
+
+  M._session:restore_keymaps()
 
   vim.api.nvim_clear_autocmds({ group = snippet_group, buffer = M._session.bufnr })
   vim.api.nvim_buf_clear_namespace(M._session.bufnr, snippet_ns, 0, -1)

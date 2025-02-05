@@ -1,13 +1,15 @@
-local helpers = require('test.functional.helpers')(after_each)
+local t = require('test.testutil')
+local n = require('test.functional.testnvim')()
 local Screen = require('test.functional.ui.screen')
-local assert_alive = helpers.assert_alive
-local clear = helpers.clear
-local feed = helpers.feed
-local eq = helpers.eq
-local exec_lua = helpers.exec_lua
-local next_msg = helpers.next_msg
-local NIL = helpers.NIL
-local pcall_err = helpers.pcall_err
+
+local assert_alive = n.assert_alive
+local clear = n.clear
+local feed = n.feed
+local eq = t.eq
+local exec_lua = n.exec_lua
+local next_msg = n.next_msg
+local NIL = vim.NIL
+local pcall_err = t.pcall_err
 
 describe('thread', function()
   local screen
@@ -15,14 +17,26 @@ describe('thread', function()
   before_each(function()
     clear()
     screen = Screen.new(50, 10)
-    screen:attach()
-    screen:set_default_attr_ids({
-      [1] = {bold = true, foreground = Screen.colors.Blue1},
-      [2] = {bold = true, reverse = true},
-      [3] = {foreground = Screen.colors.Grey100, background = Screen.colors.Red},
-      [4] = {bold = true, foreground = Screen.colors.SeaGreen4},
-      [5] = {bold = true},
-    })
+  end)
+
+  it('handle non-string error', function()
+    exec_lua [[
+      local thread = vim.uv.new_thread(function()
+        error()
+      end)
+      vim.uv.thread_join(thread)
+    ]]
+
+    screen:expect([[
+                                                        |
+      {1:~                                                 }|*5
+      {3:                                                  }|
+      {9:Error in luv thread:}                              |
+      {9:[NULL]}                                            |
+      {6:Press ENTER or type command to continue}^           |
+    ]])
+    feed('<cr>')
+    assert_alive()
   end)
 
   it('entry func is executed in protected mode', function()
@@ -36,10 +50,10 @@ describe('thread', function()
     screen:expect([[
                                                         |
       {1:~                                                 }|*5
-      {2:                                                  }|
-      {3:Error in luv thread:}                              |
-      {3:[string "<nvim>"]:2: Error in thread entry func}   |
-      {4:Press ENTER or type command to continue}^           |
+      {3:                                                  }|
+      {9:Error in luv thread:}                              |
+      {9:[string "<nvim>"]:2: Error in thread entry func}   |
+      {6:Press ENTER or type command to continue}^           |
     ]])
     feed('<cr>')
     assert_alive()
@@ -63,10 +77,10 @@ describe('thread', function()
     screen:expect([[
                                                         |
       {1:~                                                 }|*5
-      {2:                                                  }|
-      {3:Error in luv callback, thread:}                    |
-      {3:[string "<nvim>"]:6: Error in thread callback}     |
-      {4:Press ENTER or type command to continue}^           |
+      {3:                                                  }|
+      {9:Error in luv callback, thread:}                    |
+      {9:[string "<nvim>"]:6: Error in thread callback}     |
+      {6:Press ENTER or type command to continue}^           |
     ]])
     feed('<cr>')
     assert_alive()
@@ -150,7 +164,7 @@ describe('thread', function()
         thread_test:do_test()
       ]]
 
-      eq({'notification', 'result', {true}}, next_msg())
+      eq({ 'notification', 'result', { true } }, next_msg())
     end)
 
     it('uv', function()
@@ -166,7 +180,7 @@ describe('thread', function()
       ]]
 
       local msg = next_msg()
-      eq(msg[1], 'notification')
+      eq('notification', msg[1])
       assert(tonumber(msg[2]) >= 72961)
     end)
 
@@ -182,7 +196,7 @@ describe('thread', function()
         thread_test:do_test()
       ]]
 
-      eq({'notification', 'result', {{33, NIL, 'text'}}}, next_msg())
+      eq({ 'notification', 'result', { { 33, NIL, 'text' } } }, next_msg())
     end)
 
     it('json', function()
@@ -197,7 +211,7 @@ describe('thread', function()
         thread_test:do_test()
       ]]
 
-      eq({'notification', 'result', {{33, NIL, 'text'}}}, next_msg())
+      eq({ 'notification', 'result', { { 33, NIL, 'text' } } }, next_msg())
     end)
 
     it('diff', function()
@@ -212,14 +226,18 @@ describe('thread', function()
         thread_test:do_test()
       ]]
 
-      eq({'notification', 'result',
-          {table.concat({
+      eq({
+        'notification',
+        'result',
+        {
+          table.concat({
             '@@ -1 +1 @@',
             '-Hello',
             '+Helli',
-            ''
-          }, '\n')}},
-        next_msg())
+            '',
+          }, '\n'),
+        },
+      }, next_msg())
     end)
   end)
 end)
@@ -241,29 +259,23 @@ describe('threadpool', function()
       work:queue()
     ]]
 
-    eq({'notification', 'result', {true}}, next_msg())
+    eq({ 'notification', 'result', { true } }, next_msg())
   end)
 
   it('with invalid argument', function()
-    local status = pcall_err(exec_lua, [[
+    local status = pcall_err(
+      exec_lua,
+      [[
       local work = vim.uv.new_thread(function() end, function() end)
       work:queue({})
-    ]])
+    ]]
+    )
 
-    eq([[Error: thread arg not support type 'function' at 1]],
-       status)
+    eq([[Error: thread arg not support type 'function' at 1]], status)
   end)
 
   it('with invalid return value', function()
     local screen = Screen.new(50, 10)
-    screen:attach()
-    screen:set_default_attr_ids({
-      [1] = {bold = true, foreground = Screen.colors.Blue1},
-      [2] = {bold = true, reverse = true},
-      [3] = {foreground = Screen.colors.Grey100, background = Screen.colors.Red},
-      [4] = {bold = true, foreground = Screen.colors.SeaGreen4},
-      [5] = {bold = true},
-    })
 
     exec_lua [[
       local work = vim.uv.new_work(function() return {} end, function() end)
@@ -273,10 +285,10 @@ describe('threadpool', function()
     screen:expect([[
                                                         |
       {1:~                                                 }|*5
-      {2:                                                  }|
-      {3:Error in luv thread:}                              |
-      {3:Error: thread arg not support type 'table' at 1}   |
-      {4:Press ENTER or type command to continue}^           |
+      {3:                                                  }|
+      {9:Error in luv thread:}                              |
+      {9:Error: thread arg not support type 'table' at 1}   |
+      {6:Press ENTER or type command to continue}^           |
     ]])
   end)
 
@@ -321,7 +333,7 @@ describe('threadpool', function()
       ]]
 
       local msg = next_msg()
-      eq(msg[1], 'notification')
+      eq('notification', msg[1])
       assert(tonumber(msg[2]) >= 72961)
     end)
 
@@ -338,7 +350,7 @@ describe('threadpool', function()
         threadpool_test:do_test()
       ]]
 
-      eq({'notification', 'result', {{33, NIL, 'text'}}}, next_msg())
+      eq({ 'notification', 'result', { { 33, NIL, 'text' } } }, next_msg())
     end)
 
     it('json', function()
@@ -354,7 +366,7 @@ describe('threadpool', function()
         threadpool_test:do_test()
       ]]
 
-      eq({'notification', 'result', {{33, NIL, 'text'}}}, next_msg())
+      eq({ 'notification', 'result', { { 33, NIL, 'text' } } }, next_msg())
     end)
 
     it('work', function()
@@ -369,14 +381,18 @@ describe('threadpool', function()
         threadpool_test:do_test()
       ]]
 
-      eq({'notification', 'result',
-          {table.concat({
+      eq({
+        'notification',
+        'result',
+        {
+          table.concat({
             '@@ -1 +1 @@',
             '-Hello',
             '+Helli',
-            ''
-          }, '\n')}},
-        next_msg())
+            '',
+          }, '\n'),
+        },
+      }, next_msg())
     end)
   end)
 end)

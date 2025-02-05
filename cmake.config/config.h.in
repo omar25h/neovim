@@ -1,5 +1,4 @@
-#ifndef AUTO_CONFIG_H
-#define AUTO_CONFIG_H
+#pragma once
 
 #cmakedefine SIZEOF_INT @SIZEOF_INT@
 #cmakedefine SIZEOF_INTMAX_T @SIZEOF_INTMAX_T@
@@ -35,7 +34,6 @@
 #cmakedefine HAVE_WORKING_LIBINTL
 #cmakedefine UNIX
 #cmakedefine CASE_INSENSITIVE_FILENAME
-#cmakedefine USE_FNAME_CASE
 #cmakedefine HAVE_SYS_UIO_H
 #ifdef HAVE_SYS_UIO_H
 #cmakedefine HAVE_READV
@@ -53,5 +51,6 @@
 #cmakedefine HAVE_EXECINFO_BACKTRACE
 #cmakedefine HAVE_BUILTIN_ADD_OVERFLOW
 #cmakedefine HAVE_WIMPLICIT_FALLTHROUGH_FLAG
+#cmakedefine HAVE_BITSCANFORWARD64
 
-#endif  // AUTO_CONFIG_H
+#define VTERM_TEST_FILE "@VTERM_TEST_FILE@"

@@ -1,22 +1,16 @@
 #pragma once
 
 #include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
+#include <stddef.h>  // IWYU pragma: keep
 
 #include "klib/kvec.h"
-#include "nvim/api/private/defs.h"
-#include "nvim/api/private/dispatch.h"
-#include "nvim/decoration.h"
-#include "nvim/eval/typval_defs.h"
+#include "nvim/api/private/defs.h"  // IWYU pragma: keep
+#include "nvim/buffer_defs.h"  // IWYU pragma: keep
+#include "nvim/eval/typval_defs.h"  // IWYU pragma: keep
 #include "nvim/ex_eval_defs.h"
-#include "nvim/getchar.h"
-#include "nvim/gettext.h"
-#include "nvim/globals.h"
 #include "nvim/macros_defs.h"
 #include "nvim/map_defs.h"
-#include "nvim/memory.h"
-#include "nvim/message.h"
+#include "nvim/message_defs.h"  // IWYU pragma: keep
 
 #define OBJECT_OBJ(o) o
 
@@ -38,6 +32,10 @@
 
 #define CSTR_AS_OBJ(s) STRING_OBJ(cstr_as_string(s))
 #define CSTR_TO_OBJ(s) STRING_OBJ(cstr_to_string(s))
+#define CSTR_TO_ARENA_STR(arena, s) arena_string(arena, cstr_as_string(s))
+#define CSTR_TO_ARENA_OBJ(arena, s) STRING_OBJ(CSTR_TO_ARENA_STR(arena, s))
+#define CBUF_TO_ARENA_STR(arena, s, len) arena_string(arena, cbuf_as_string((char *)(s), len))
+#define CBUF_TO_ARENA_OBJ(arena, s, len) STRING_OBJ(CBUF_TO_ARENA_STR(arena, s, len))
 
 #define BUFFER_OBJ(s) ((Object) { \
     .type = kObjectTypeBuffer, \
@@ -55,9 +53,9 @@
     .type = kObjectTypeArray, \
     .data.array = a })
 
-#define DICTIONARY_OBJ(d) ((Object) { \
-    .type = kObjectTypeDictionary, \
-    .data.dictionary = d })
+#define DICT_OBJ(d) ((Object) { \
+    .type = kObjectTypeDict, \
+    .data.dict = d })
 
 #define LUAREF_OBJ(r) ((Object) { \
     .type = kObjectTypeLuaRef, \
@@ -76,6 +74,9 @@
 #define PUT_C(dict, k, v) \
   kv_push_c(dict, ((KeyValuePair) { .key = cstr_as_string(k), .value = v }))
 
+#define PUT_KEY(d, typ, key, v) \
+  do { (d).is_set__##typ##_ |= (1 << KEYSET_OPTIDX_##typ##__##key); (d).key = v; } while (0)
+
 #define ADD(array, item) \
   kv_push(array, item)
 
@@ -89,10 +90,12 @@
   name.items = name##__items; \
 
 #define MAXSIZE_TEMP_DICT(name, maxsize) \
-  Dictionary name = ARRAY_DICT_INIT; \
+  Dict name = ARRAY_DICT_INIT; \
   KeyValuePair name##__items[maxsize]; \
   name.capacity = maxsize; \
   name.items = name##__items; \
+
+typedef kvec_withinit_t(Object, 16) ArrayBuilder;
 
 #define cbuf_as_string(d, s) ((String) { .data = d, .size = s })
 
@@ -108,6 +111,12 @@
 #define STATIC_CSTR_AS_OBJ(s) STRING_OBJ(STATIC_CSTR_AS_STRING(s))
 #define STATIC_CSTR_TO_OBJ(s) STRING_OBJ(STATIC_CSTR_TO_STRING(s))
 
+#define API_CLEAR_STRING(s) \
+  do { \
+    XFREE_CLEAR(s.data); \
+    s.size = 0; \
+  } while (0)
+
 // Helpers used by the generated msgpack-rpc api wrappers
 #define api_init_boolean
 #define api_init_integer
@@ -118,14 +127,9 @@
 #define api_init_tabpage
 #define api_init_object = NIL
 #define api_init_array = ARRAY_DICT_INIT
-#define api_init_dictionary = ARRAY_DICT_INIT
+#define api_init_dict = ARRAY_DICT_INIT
 
-#define api_free_boolean(value)
-#define api_free_integer(value)
-#define api_free_float(value)
-#define api_free_buffer(value)
-#define api_free_window(value)
-#define api_free_tabpage(value)
+#define KEYDICT_INIT { 0 }
 
 EXTERN PMap(int) buffer_handles INIT( = MAP_INIT);
 EXTERN PMap(int) window_handles INIT( = MAP_INIT);
@@ -143,27 +147,19 @@ typedef struct {
   except_T *current_exception;
   msglist_T *private_msg_list;
   const msglist_T *const *msg_list;
-  int trylevel;
   int got_int;
   bool did_throw;
   int need_rethrow;
   int did_emsg;
 } TryState;
 
-// `msg_list` controls the collection of abort-causing non-exception errors,
-// which would otherwise be ignored.  This pattern is from do_cmdline().
-//
 // TODO(bfredl): prepare error-handling at "top level" (nv_event).
 #define TRY_WRAP(err, code) \
   do { \
-    msglist_T **saved_msg_list = msg_list; \
-    msglist_T *private_msg_list; \
-    msg_list = &private_msg_list; \
-    private_msg_list = NULL; \
-    try_start(); \
+    TryState tstate; \
+    try_enter(&tstate); \
     code; \
-    try_end(err); \
-    msg_list = saved_msg_list;  /* Restore the exception context. */ \
+    try_leave(&tstate, err); \
   } while (0)
 
 // Execute code with cursor position saved and restored and textlock active.

@@ -541,7 +541,7 @@ func Test_cursorline_after_yank()
   call writefile([
 	\ 'set cul rnu',
 	\ 'call setline(1, ["","1","2","3",""])',
-	\ ], 'Xtest_cursorline_yank')
+	\ ], 'Xtest_cursorline_yank', 'D')
   let buf = RunVimInTerminal('-S Xtest_cursorline_yank', {'rows': 8})
   call TermWait(buf)
   call term_sendkeys(buf, "Gy3k")
@@ -552,25 +552,25 @@ func Test_cursorline_after_yank()
 
   " clean up
   call StopVimInTerminal(buf)
-  call delete('Xtest_cursorline_yank')
 endfunc
 
-" test for issue https://github.com/vim/vim/issues/4862
+" Test for issue #4862: pasting above 'cursorline' redraws properly.
 func Test_put_before_cursorline()
   new
   only!
-  call setline(1, 'A')
+  call setline(1, ['A', 'B', 'C'])
+  call cursor(2, 1)
   redraw
-  let std_attr = screenattr(1, 1)
+  let std_attr = screenattr(2, 1)
   set cursorline
   redraw
-  let cul_attr = screenattr(1, 1)
+  let cul_attr = screenattr(2, 1)
   normal yyP
   redraw
-  " Line 1 has cursor so it should be highlighted with CursorLine.
-  call assert_equal(cul_attr, screenattr(1, 1))
-  " And CursorLine highlighting from the second line should be gone.
-  call assert_equal(std_attr, screenattr(2, 1))
+  " Line 2 has cursor so it should be highlighted with CursorLine.
+  call assert_equal(cul_attr, screenattr(2, 1))
+  " And CursorLine highlighting from line 3 should be gone.
+  call assert_equal(std_attr, screenattr(3, 1))
   set nocursorline
   bwipe!
 endfunc
@@ -785,8 +785,8 @@ func Test_1_highlight_Normalgroup_exists()
   if !has('gui_running')
     call assert_match('hi Normal\s*clear', hlNormal)
   elseif has('gui_gtk2') || has('gui_gnome') || has('gui_gtk3')
-    " expect is DEFAULT_FONT of gui_gtk_x11.c
-    call assert_match('hi Normal\s*font=Monospace 10', hlNormal)
+    " expect is DEFAULT_FONT of gui_gtk_x11.c (any size)
+    call assert_match('hi Normal\s*font=Monospace\>', hlNormal)
   elseif has('gui_motif')
     " expect is DEFAULT_FONT of gui_x11.c
     call assert_match('hi Normal\s*font=7x13', hlNormal)
@@ -823,6 +823,24 @@ func Test_highlight_cmd_errors()
   let c = repeat("t_fo,", 100) . "t_fo"
   " call assert_fails('exe "hi Xgroup1 start=" . c', 'E422:')
   let &t_fo = ""
+endfunc
+
+" Test for User group highlighting used in the statusline
+func Test_highlight_User()
+  CheckNotGui
+  hi User1 ctermfg=12
+  redraw!
+  call assert_equal('12', synIDattr(synIDtrans(hlID('User1')), 'fg'))
+  hi clear
+endfunc
+
+" Test for MsgArea highlighting
+func Test_highlight_MsgArea()
+  CheckNotGui
+  hi MsgArea ctermfg=20
+  redraw!
+  call assert_equal('20', synIDattr(synIDtrans(hlID('MsgArea')), 'fg'))
+  hi clear
 endfunc
 
 " Test for using RGB color values in a highlight group

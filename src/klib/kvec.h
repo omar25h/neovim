@@ -105,11 +105,12 @@
   } while (0)
 
 #define kv_concat_len(v, data, len) \
-  do { \
+  if (len > 0) { \
     kv_ensure_space(v, len); \
+    assert((v).items); \
     memcpy((v).items + (v).size, data, sizeof((v).items[0]) * len); \
     (v).size = (v).size + len; \
-  } while (0)
+  }
 
 #define kv_concat(v, str) kv_concat_len(v, str, strlen(str))
 #define kv_splice(v1, v0) kv_concat_len(v1, (v0).items, (v0).size)
@@ -134,6 +135,10 @@
          : 0UL)), \
      &(v).items[(i)]))
 
+#define kv_shift(v, i, n) ((v).size -= (n), (i) < (v).size \
+                           && memmove(&kv_A(v, (i)), &kv_A(v, (i)+(n)), \
+                                      ((v).size-(i))*sizeof(kv_A(v, i))))
+
 #define kv_printf(v, ...) kv_do_printf(&(v), __VA_ARGS__)
 
 /// Type of a vector with a few first members allocated on stack
@@ -151,6 +156,12 @@
     type *items; \
     type init_array[INIT_SIZE]; \
   }
+
+#define KVI_INITIAL_VALUE(v) { \
+  .size = 0, \
+  .capacity = ARRAY_SIZE((v).init_array), \
+  .items = (v).init_array \
+}
 
 /// Initialize vector with preallocated array
 ///
@@ -216,6 +227,17 @@ static inline void *_memcpy_free(void *const restrict dest, void *const restrict
       kvi_resize((v), (v).capacity); \
     } \
   } while (0)
+
+#define kvi_concat_len(v, data, len) \
+  if (len > 0) { \
+    kvi_ensure_more_space(v, len); \
+    assert((v).items); \
+    memcpy((v).items + (v).size, data, sizeof((v).items[0]) * len); \
+    (v).size = (v).size + len; \
+  }
+
+#define kvi_concat(v, str) kvi_concat_len(v, str, strlen(str))
+#define kvi_splice(v1, v0) kvi_concat_len(v1, (v0).items, (v0).size)
 
 /// Get location where to store new element to a vector with preallocated array
 ///

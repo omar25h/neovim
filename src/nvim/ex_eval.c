@@ -11,20 +11,25 @@
 #include "nvim/ascii_defs.h"
 #include "nvim/charset.h"
 #include "nvim/debugger.h"
+#include "nvim/errors.h"
 #include "nvim/eval.h"
 #include "nvim/eval/typval.h"
+#include "nvim/eval/typval_defs.h"
 #include "nvim/eval/userfunc.h"
+#include "nvim/eval_defs.h"
 #include "nvim/ex_cmds_defs.h"
 #include "nvim/ex_docmd.h"
 #include "nvim/ex_eval.h"
 #include "nvim/ex_eval_defs.h"
-#include "nvim/gettext.h"
+#include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
 #include "nvim/memory.h"
 #include "nvim/message.h"
 #include "nvim/option_vars.h"
 #include "nvim/regexp.h"
+#include "nvim/regexp_defs.h"
 #include "nvim/runtime.h"
+#include "nvim/runtime_defs.h"
 #include "nvim/strings.h"
 #include "nvim/vim_defs.h"
 
@@ -92,7 +97,7 @@ static void discard_pending_return(typval_T *p)
 // expression evaluation is done without producing any error messages, but all
 // error messages on parsing errors during the expression evaluation are given
 // (even if a try conditional is active).
-static int cause_abort = false;
+static bool cause_abort = false;
 
 /// @return  true when immediately aborting on error, or when an interrupt
 ///          occurred or an exception was thrown but not caught.
@@ -105,7 +110,7 @@ static int cause_abort = false;
 /// That is, during cancellation of an expression evaluation after an aborting
 /// function call or due to a parsing error, aborting() always returns the same
 /// value. "got_int" is also set by calling interrupt().
-int aborting(void)
+bool aborting(void)
 {
   return (did_emsg && force_abort) || got_int || did_throw;
 }
@@ -125,7 +130,7 @@ void update_force_abort(void)
 /// abort the script processing.  Can be used to suppress an autocommand after
 /// execution of a failing subcommand as long as the error message has not been
 /// displayed and actually caused the abortion.
-int should_abort(int retcode)
+bool should_abort(int retcode)
 {
   return (retcode == FAIL && trylevel != 0 && !emsg_silent) || aborting();
 }
@@ -134,7 +139,7 @@ int should_abort(int retcode)
 /// ended on an error.  This means that parsing commands is continued in order
 /// to find finally clauses to be executed, and that some errors in skipped
 /// commands are still reported.
-int aborted_in_try(void)
+bool aborted_in_try(void)
   FUNC_ATTR_PURE
 {
   // This function is only called after an error.  In this case, "force_abort"
@@ -223,7 +228,7 @@ bool cause_errthrow(const char *mesg, bool multiline, bool severe, bool *ignore)
     // catch clause; just finally clauses are executed before the script
     // is terminated.
     return false;
-  } else  // NOLINT(readability/braces)
+  } else
 #endif
   {
     // Prepare the throw of an error exception, so that everything will
@@ -326,7 +331,7 @@ void do_errthrow(cstack_T *cstack, char *cmdname)
 ///
 /// @return  true if the current exception is discarded or,
 ///          false otherwise.
-int do_intthrow(cstack_T *cstack)
+bool do_intthrow(cstack_T *cstack)
 {
   // If no interrupt occurred or no try conditional is active and no exception
   // is being thrown, do nothing (for compatibility of non-EH scripts).
@@ -369,7 +374,7 @@ int do_intthrow(cstack_T *cstack)
 }
 
 /// Get an exception message that is to be stored in current_exception->value.
-char *get_exception_string(void *value, except_type_T type, char *cmdname, int *should_free)
+char *get_exception_string(void *value, except_type_T type, char *cmdname, bool *should_free)
 {
   char *ret;
 
@@ -401,7 +406,7 @@ char *get_exception_string(void *value, except_type_T type, char *cmdname, int *
                           || (ascii_isdigit(p[3])
                               && p[4] == ':')))))) {
         if (*p == NUL || p == mesg) {
-          STRCAT(val, mesg);  // 'E123' missing or at beginning
+          strcat(val, mesg);  // 'E123' missing or at beginning
         } else {
           // '"filename" E123: message text'
           if (mesg[0] != '"' || p - 2 < &mesg[1]
@@ -410,7 +415,7 @@ char *get_exception_string(void *value, except_type_T type, char *cmdname, int *
             continue;
           }
 
-          STRCAT(val, p);
+          strcat(val, p);
           p[-2] = NUL;
           snprintf(val + strlen(p), strlen(" (%s)"), " (%s)", &mesg[1]);
           p[-2] = '"';
@@ -454,7 +459,7 @@ static int throw_exception(void *value, except_type_T type, char *cmdname)
     excp->messages = (msglist_T *)value;
   }
 
-  int should_free;
+  bool should_free;
   excp->value = get_exception_string(value, type, cmdname, &should_free);
   if (excp->value == NULL && should_free) {
     goto nomem;
@@ -473,6 +478,9 @@ static int throw_exception(void *value, except_type_T type, char *cmdname)
     }
     excp->throw_lnum = SOURCING_LNUM;
   }
+
+  excp->stacktrace = stacktrace_create();
+  tv_list_ref(excp->stacktrace);
 
   if (p_verbose >= 13 || debug_break_level > 0) {
     int save_msg_silent = msg_silent;
@@ -558,6 +566,7 @@ static void discard_exception(except_T *excp, bool was_finished)
     free_msglist(excp->messages);
   }
   xfree(excp->throw_name);
+  tv_list_unref(excp->stacktrace);
   xfree(excp);
 }
 
@@ -579,6 +588,7 @@ static void catch_exception(except_T *excp)
   excp->caught = caught_stack;
   caught_stack = excp;
   set_vim_var_string(VV_EXCEPTION, excp->value, -1);
+  set_vim_var_list(VV_STACKTRACE, excp->stacktrace);
   if (*excp->throw_name != NUL) {
     if (excp->throw_lnum != 0) {
       vim_snprintf(IObuff, IOSIZE, _("%s, line %" PRId64),
@@ -628,6 +638,7 @@ static void finish_exception(except_T *excp)
   caught_stack = caught_stack->caught;
   if (caught_stack != NULL) {
     set_vim_var_string(VV_EXCEPTION, caught_stack->value, -1);
+    set_vim_var_list(VV_STACKTRACE, caught_stack->stacktrace);
     if (*caught_stack->throw_name != NUL) {
       if (caught_stack->throw_lnum != 0) {
         vim_snprintf(IObuff, IOSIZE,
@@ -646,6 +657,7 @@ static void finish_exception(except_T *excp)
   } else {
     set_vim_var_string(VV_EXCEPTION, NULL, -1);
     set_vim_var_string(VV_THROWPOINT, NULL, -1);
+    set_vim_var_list(VV_STACKTRACE, NULL);
   }
 
   // Discard the exception, but use the finish message for 'verbose'.
@@ -841,10 +853,10 @@ void ex_if(exarg_T *eap)
     cstack->cs_idx++;
     cstack->cs_flags[cstack->cs_idx] = 0;
 
-    int skip = CHECK_SKIP;
+    bool skip = CHECK_SKIP;
 
     bool error;
-    int result = eval_to_bool(eap->arg, &error, eap, skip);
+    bool result = eval_to_bool(eap->arg, &error, eap, skip, false);
 
     if (!skip && !error) {
       if (result) {
@@ -875,7 +887,7 @@ void ex_endif(exarg_T *eap)
     // discarded by throwing the interrupt exception later on.
     if (!(eap->cstack->cs_flags[eap->cstack->cs_idx] & CSF_TRUE)
         && dbg_check_skipped(eap)) {
-      (void)do_intthrow(eap->cstack);
+      do_intthrow(eap->cstack);
     }
 
     eap->cstack->cs_idx--;
@@ -926,7 +938,7 @@ void ex_else(exarg_T *eap)
   // for a parsing errors is discarded when throwing the interrupt exception
   // later on.
   if (!skip && dbg_check_skipped(eap) && got_int) {
-    (void)do_intthrow(cstack);
+    do_intthrow(cstack);
     skip = true;
   }
 
@@ -939,7 +951,7 @@ void ex_else(exarg_T *eap)
     if (skip && *eap->arg != '"' && ends_excmd(*eap->arg)) {
       semsg(_(e_invexpr2), eap->arg);
     } else {
-      result = eval_to_bool(eap->arg, &error, eap, skip);
+      result = eval_to_bool(eap->arg, &error, eap, skip, false);
     }
 
     // When throwing error exceptions, we want to throw always the first
@@ -971,7 +983,7 @@ void ex_while(exarg_T *eap)
   if (cstack->cs_idx == CSTACK_LEN - 1) {
     eap->errmsg = _("E585: :while/:for nesting too deep");
   } else {
-    int result;
+    bool result;
     // The loop flag is set when we have jumped back from the matching
     // ":endwhile" or ":endfor".  When not set, need to initialise this
     // cstack entry.
@@ -985,7 +997,7 @@ void ex_while(exarg_T *eap)
 
     int skip = CHECK_SKIP;
     if (eap->cmdidx == CMD_while) {  // ":while bool-expr"
-      result = eval_to_bool(eap->arg, &error, eap, skip);
+      result = eval_to_bool(eap->arg, &error, eap, skip, false);
     } else {  // ":for var in list-expr"
       evalarg_T evalarg;
       fill_evalarg_from_eap(&evalarg, eap, skip);
@@ -1132,7 +1144,7 @@ void ex_endwhile(exarg_T *eap)
         }
       }
       // Cleanup and rewind all contained (and unclosed) conditionals.
-      (void)cleanup_conditionals(cstack, CSF_WHILE | CSF_FOR, false);
+      cleanup_conditionals(cstack, CSF_WHILE | CSF_FOR, false);
       rewind_conditionals(cstack, idx, CSF_TRY, &cstack->cs_trylevel);
     } else if (cstack->cs_flags[cstack->cs_idx] & CSF_TRUE
                && !(cstack->cs_flags[cstack->cs_idx] & CSF_ACTIVE)
@@ -1145,7 +1157,7 @@ void ex_endwhile(exarg_T *eap)
       // throw an interrupt exception if appropriate.  Doing this here
       // prevents that an exception for a parsing error is discarded when
       // throwing the interrupt exception later on.
-      (void)do_intthrow(cstack);
+      do_intthrow(cstack);
     }
 
     // Set loop flag, so do_cmdline() will jump back to the matching
@@ -1183,7 +1195,7 @@ void ex_throw(exarg_T *eap)
 /// used for rethrowing an uncaught exception.
 void do_throw(cstack_T *cstack)
 {
-  int inactivate_try = false;
+  bool inactivate_try = false;
 
   // Cleanup and deactivate up to the next surrounding try conditional that
   // is not in its finally clause.  Normally, do not deactivate the try
@@ -1476,7 +1488,7 @@ void ex_finally(exarg_T *eap)
       // occurred before the ":finally".  That is, discard the
       // original exception and replace it by an interrupt
       // exception.
-      (void)do_intthrow(cstack);
+      do_intthrow(cstack);
     }
 
     // If there is a preceding catch clause and it caught the exception,
@@ -1617,7 +1629,7 @@ void ex_endtry(exarg_T *eap)
     // set "skip" and "rethrow".
     if (got_int) {
       skip = true;
-      (void)do_intthrow(cstack);
+      do_intthrow(cstack);
       // The do_intthrow() call may have reset did_throw or
       // cstack->cs_pending[idx].
       rethrow = false;
@@ -1649,7 +1661,7 @@ void ex_endtry(exarg_T *eap)
   // was no finally clause, finish the exception now.  This happens also
   // after errors except when this ":endtry" is not within a ":try".
   // Restore "emsg_silent" if it has been reset by this try conditional.
-  (void)cleanup_conditionals(cstack, CSF_TRY | CSF_SILENT, true);
+  cleanup_conditionals(cstack, CSF_TRY | CSF_SILENT, true);
 
   if (cstack->cs_idx >= 0 && (cstack->cs_flags[cstack->cs_idx] & CSF_TRY)) {
     cstack->cs_idx--;
@@ -1861,7 +1873,7 @@ void leave_cleanup(cleanup_T *csp)
 int cleanup_conditionals(cstack_T *cstack, int searched_cond, int inclusive)
 {
   int idx;
-  int stop = false;
+  bool stop = false;
 
   for (idx = cstack->cs_idx; idx >= 0; idx--) {
     if (cstack->cs_flags[idx] & CSF_TRY) {
@@ -1998,7 +2010,7 @@ void ex_endfunction(exarg_T *eap)
 }
 
 /// @return  true if the string "p" looks like a ":while" or ":for" command.
-int has_loop_cmd(char *p)
+bool has_loop_cmd(char *p)
 {
   // skip modifiers, white space and ':'
   while (true) {

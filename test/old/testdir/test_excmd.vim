@@ -3,6 +3,7 @@
 source check.vim
 source shared.vim
 source term_util.vim
+source screendump.vim
 
 func Test_ex_delete()
   new
@@ -90,23 +91,31 @@ endfunc
 
 " Test for the :drop command
 func Test_drop_cmd()
-  call writefile(['L1', 'L2'], 'Xfile')
+  call writefile(['L1', 'L2'], 'Xdropfile', 'D')
+  " Test for reusing the current buffer
   enew | only
-  drop Xfile
+  let expected_nr = bufnr()
+  drop Xdropfile
+  call assert_equal(expected_nr, bufnr())
   call assert_equal('L2', getline(2))
   " Test for switching to an existing window
   below new
-  drop Xfile
+  drop Xdropfile
   call assert_equal(1, winnr())
-  " Test for splitting the current window
+  " Test for splitting the current window (set nohidden)
   enew | only
   set modified
-  drop Xfile
+  drop Xdropfile
   call assert_equal(2, winnr('$'))
+  " Not splitting the current window even if modified (set hidden)
+  set hidden
+  enew | only
+  set modified
+  drop Xdropfile
+  call assert_equal(1, winnr('$'))
   " Check for setting the argument list
-  call assert_equal(['Xfile'], argv())
+  call assert_equal(['Xdropfile'], argv())
   enew | only!
-  call delete('Xfile')
 endfunc
 
 " Test for the :append command
@@ -656,7 +665,7 @@ func Sandbox_tests()
   if has('clientserver')
     call assert_fails('let s=remote_expr("gvim", "2+2")', 'E48:')
     if !has('win32')
-      " remote_foreground() doesn't thrown an error message on MS-Windows
+      " remote_foreground() doesn't throw an error message on MS-Windows
       call assert_fails('call remote_foreground("gvim")', 'E48:')
     endif
     call assert_fails('let s=remote_peek("gvim")', 'E48:')
@@ -709,15 +718,20 @@ func Test_not_break_expression_register()
 endfunc
 
 func Test_address_line_overflow()
-  throw 'Skipped: v:sizeoflong is N/A'  " use legacy/excmd_spec.lua instead
-
-  if v:sizeoflong < 8
+  if !has('nvim') && v:sizeoflong < 8
     throw 'Skipped: only works with 64 bit long ints'
   endif
   new
-  call setline(1, 'text')
+  call setline(1, range(100))
   call assert_fails('|.44444444444444444444444', 'E1247:')
   call assert_fails('|.9223372036854775806', 'E1247:')
+  call assert_fails('.44444444444444444444444d', 'E1247:')
+  call assert_equal(range(100)->map('string(v:val)'), getline(1, '$'))
+
+  $
+  yank 77777777777777777777
+  call assert_equal("99\n", @")
+
   bwipe!
 endfunc
 
@@ -748,6 +762,21 @@ endfunc
 " catch address lines overflow
 func Test_ex_address_range_overflow()
   call assert_fails(':--+foobar', 'E492:')
+endfunc
+
+func Test_drop_modified_file()
+  CheckScreendump
+  let lines =<< trim END
+  call setline(1, 'The quick brown fox jumped over the lazy dogs')
+  END
+  call writefile([''], 'Xdrop_modified.txt', 'D')
+  call writefile(lines, 'Xtest_drop_modified', 'D')
+  let buf = RunVimInTerminal('-S Xtest_drop_modified Xdrop_modified.txt', {'rows': 10,'columns': 40})
+  call term_sendkeys(buf, ":drop Xdrop_modified.txt\<CR>")
+  call VerifyScreenDump(buf, 'Test_drop_modified_1', {})
+
+  " clean up
+  call StopVimInTerminal(buf)
 endfunc
 
 " vim: shiftwidth=2 sts=2 expandtab

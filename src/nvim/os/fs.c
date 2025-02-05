@@ -18,6 +18,7 @@
 
 #include "auto/config.h"
 #include "nvim/os/fs.h"
+#include "nvim/os/os_defs.h"
 
 #if defined(HAVE_ACL)
 # ifdef HAVE_SYS_ACL_H
@@ -32,8 +33,10 @@
 # include <sys/xattr.h>
 #endif
 
+#include "nvim/api/private/helpers.h"
 #include "nvim/ascii_defs.h"
-#include "nvim/gettext.h"
+#include "nvim/errors.h"
+#include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
 #include "nvim/log.h"
 #include "nvim/macros_defs.h"
@@ -43,6 +46,7 @@
 #include "nvim/os/os.h"
 #include "nvim/path.h"
 #include "nvim/types_defs.h"
+#include "nvim/ui.h"
 #include "nvim/vim_defs.h"
 
 #ifdef HAVE_SYS_UIO_H
@@ -52,6 +56,7 @@
 #ifdef MSWIN
 # include "nvim/mbyte.h"
 # include "nvim/option.h"
+# include "nvim/os/os_win_console.h"
 # include "nvim/strings.h"
 #endif
 
@@ -89,7 +94,11 @@ int os_chdir(const char *path)
     smsg(0, "chdir(%s)", path);
     verbose_leave();
   }
-  return uv_chdir(path);
+  int err = uv_chdir(path);
+  if (err == 0) {
+    ui_call_chdir(cstr_as_string(path));
+  }
+  return err;
 }
 
 /// Get the name of current directory.
@@ -293,7 +302,7 @@ static bool is_executable_ext(const char *name, char **abspath)
   char *nameext = strrchr(name, '.');
   size_t nameext_len = nameext ? strlen(nameext) : 0;
   xstrlcpy(os_buf, name, sizeof(os_buf));
-  char *buf_end = xstrchrnul(os_buf, '\0');
+  char *buf_end = xstrchrnul(os_buf, NUL);
   const char *pathext = os_getenv("PATHEXT");
   if (!pathext) {
     pathext = ".com;.exe;.bat;.cmd";
@@ -301,7 +310,7 @@ static bool is_executable_ext(const char *name, char **abspath)
   const char *ext = pathext;
   while (*ext) {
     // If $PATHEXT itself contains dot:
-    if (ext[0] == '.' && (ext[1] == '\0' || ext[1] == ENV_SEPCHAR)) {
+    if (ext[0] == '.' && (ext[1] == NUL || ext[1] == ENV_SEPCHAR)) {
       if (is_executable(name, abspath)) {
         return true;
       }
@@ -347,16 +356,22 @@ static bool is_executable_in_path(const char *name, char **abspath)
   }
 
 #ifdef MSWIN
-  // Prepend ".;" to $PATH.
-  size_t pathlen = strlen(path_env);
-  char *path = memcpy(xmallocz(pathlen + 2), "." ENV_SEPSTR, 2);
-  memcpy(path + 2, path_env, pathlen);
+  char *path = NULL;
+  if (!os_env_exists("NoDefaultCurrentDirectoryInExePath")) {
+    // Prepend ".;" to $PATH.
+    size_t pathlen = strlen(path_env);
+    path = xmallocz(pathlen + 2);
+    memcpy(path, "." ENV_SEPSTR, 2);
+    memcpy(path + 2, path_env, pathlen);
+  } else {
+    path = xstrdup(path_env);
+  }
 #else
   char *path = xstrdup(path_env);
 #endif
 
-  size_t buf_len = strlen(name) + strlen(path) + 2;
-  char *buf = xmalloc(buf_len);
+  const size_t bufsize = strlen(name) + strlen(path) + 2;
+  char *buf = xmalloc(bufsize);
 
   // Walk through all entries in $PATH to check if "name" exists there and
   // is an executable file.
@@ -366,8 +381,8 @@ static bool is_executable_in_path(const char *name, char **abspath)
     char *e = xstrchrnul(p, ENV_SEPCHAR);
 
     // Combine the $PATH segment with `name`.
-    xstrlcpy(buf, p, (size_t)(e - p) + 1);
-    append_path(buf, name, buf_len);
+    xmemcpyz(buf, p, (size_t)(e - p));
+    (void)append_path(buf, name, bufsize);
 
 #ifdef MSWIN
     if (is_executable_ext(buf, abspath)) {
@@ -427,7 +442,7 @@ FILE *os_fopen(const char *path, const char *flags)
   assert(flags != NULL && strlen(flags) > 0 && strlen(flags) <= 2);
   int iflags = 0;
   // Per table in fopen(3) manpage.
-  if (flags[1] == '\0' || flags[1] == 'b') {
+  if (flags[1] == NUL || flags[1] == 'b') {
     switch (flags[0]) {
     case 'r':
       iflags = O_RDONLY;
@@ -532,6 +547,22 @@ os_dup_dup:
     }
   }
   return ret;
+}
+
+/// Open the file descriptor for stdin.
+int os_open_stdin_fd(void)
+{
+  int stdin_dup_fd;
+  if (stdin_fd > 0) {
+    stdin_dup_fd = stdin_fd;
+  } else {
+    stdin_dup_fd = os_dup(STDIN_FILENO);
+#ifdef MSWIN
+    // Replace the original stdin with the console input handle.
+    os_replace_stdin_to_conin();
+#endif
+  }
+  return stdin_dup_fd;
 }
 
 /// Read from a file
@@ -765,7 +796,7 @@ void os_copy_xattr(const char *from_file, const char *to_file)
   // get the length of the extended attributes
   ssize_t size = listxattr((char *)from_file, NULL, 0);
   // not supported or no attributes to copy
-  if (errno == ENOTSUP || size <= 0) {
+  if (size <= 0) {
     return;
   }
   char *xattr_buf = xmalloc((size_t)size);
@@ -1296,22 +1327,22 @@ bool os_fileid_equal_fileinfo(const FileID *file_id, const FileInfo *file_info)
 /// Return the canonicalized absolute pathname.
 ///
 /// @param[in] name Filename to be canonicalized.
-/// @param[out] buf Buffer to store the canonicalized values. A minimum length
-//                  of MAXPATHL+1 is required. If it is NULL, memory is
-//                  allocated. In that case, the caller should deallocate this
-//                  buffer.
+/// @param[out] buf Buffer to store the canonicalized values.
+///                 If it is NULL, memory is allocated. In that case, the caller
+///                 should deallocate this buffer.
+/// @param[in] len  The length of the buffer.
 ///
 /// @return pointer to the buf on success, or NULL.
-char *os_realpath(const char *name, char *buf)
+char *os_realpath(const char *name, char *buf, size_t len)
   FUNC_ATTR_NONNULL_ARG(1)
 {
   uv_fs_t request;
   int result = uv_fs_realpath(NULL, &request, name, NULL);
   if (result == kLibuvSuccess) {
     if (buf == NULL) {
-      buf = xmallocz(MAXPATHL);
+      buf = xmalloc(len);
     }
-    xstrlcpy(buf, request.ptr, MAXPATHL + 1);
+    xstrlcpy(buf, request.ptr, len);
   }
   uv_fs_req_cleanup(&request);
   return result == kLibuvSuccess ? buf : NULL;

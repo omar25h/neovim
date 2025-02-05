@@ -1,10 +1,12 @@
-local helpers = require('test.functional.helpers')(after_each)
-local clear = helpers.clear
-local command = helpers.command
-local eq = helpers.eq
-local eval = helpers.eval
-local feed = helpers.feed
-local write_file = helpers.write_file
+local t = require('test.testutil')
+local n = require('test.functional.testnvim')()
+
+local clear = n.clear
+local command = n.command
+local eq = t.eq
+local eval = n.eval
+local feed = n.feed
+local write_file = t.write_file
 
 describe('ccomplete#Complete', function()
   setup(function()

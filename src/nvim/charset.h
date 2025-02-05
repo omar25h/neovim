@@ -3,22 +3,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "nvim/buffer_defs.h"
-#include "nvim/eval/typval_defs.h"
-#include "nvim/option_defs.h"
 #include "nvim/option_vars.h"
-#include "nvim/pos_defs.h"
-#include "nvim/strings.h"
-
-/// Return the folded-case equivalent of the given character
-///
-/// @param[in]  c  Character to transform.
-///
-/// @return Folded variant.
-#define CH_FOLD(c) \
-  utf_fold((sizeof(c) == sizeof(char)) \
-           ? ((int)(uint8_t)(c)) \
-           : ((int)(c)))
+#include "nvim/strings.h"  // IWYU pragma: keep
 
 /// Flags for vim_str2nr()
 typedef enum {
@@ -44,15 +30,13 @@ typedef enum {
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "charset.h.generated.h"
+# include "charset.h.inline.generated.h"
 #endif
-
-static inline bool vim_isbreak(int c)
-  REAL_FATTR_CONST
-  REAL_FATTR_ALWAYS_INLINE;
 
 /// Check if `c` is one of the characters in 'breakat'.
 /// Used very often if 'linebreak' is set
 static inline bool vim_isbreak(int c)
+  FUNC_ATTR_CONST FUNC_ATTR_ALWAYS_INLINE
 {
   return breakat_flags[(uint8_t)c];
 }

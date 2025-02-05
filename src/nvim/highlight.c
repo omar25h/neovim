@@ -11,9 +11,10 @@
 #include "nvim/api/private/helpers.h"
 #include "nvim/api/private/validate.h"
 #include "nvim/api/ui.h"
+#include "nvim/decoration_defs.h"
 #include "nvim/decoration_provider.h"
 #include "nvim/drawscreen.h"
-#include "nvim/gettext.h"
+#include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
 #include "nvim/highlight.h"
 #include "nvim/highlight_defs.h"
@@ -22,6 +23,7 @@
 #include "nvim/macros_defs.h"
 #include "nvim/map_defs.h"
 #include "nvim/memory.h"
+#include "nvim/memory_defs.h"
 #include "nvim/message.h"
 #include "nvim/option.h"
 #include "nvim/popupmenu.h"
@@ -40,12 +42,13 @@ static Set(HlEntry) attr_entries = SET_INIT;
 static Map(int, int) combine_attr_entries = MAP_INIT;
 static Map(int, int) blend_attr_entries = MAP_INIT;
 static Map(int, int) blendthrough_attr_entries = MAP_INIT;
+static Set(cstr_t) urls = SET_INIT;
 
 #define attr_entry(i) attr_entries.keys[i]
 
 /// highlight entries private to a namespace
 static Map(ColorKey, ColorItem) ns_hls;
-typedef int NSHlAttr[HLF_COUNT + 1];
+typedef int NSHlAttr[HLF_COUNT];
 static PMap(int) ns_hl_attr;
 
 void highlight_init(void)
@@ -113,26 +116,28 @@ retry: {}
   // new attr id, send event to remote ui:s
   int id = (int)k;
 
-  Array inspect = hl_inspect(id);
+  Arena arena = ARENA_EMPTY;
+  Array inspect = hl_inspect(id, &arena);
 
   // Note: internally we don't distinguish between cterm and rgb attributes,
   // remote_ui_hl_attr_define will however.
   ui_call_hl_attr_define(id, entry.attr, entry.attr, inspect);
-  api_free_array(inspect);
+  arena_mem_free(arena_finish(&arena));
   return id;
 }
 
 /// When a UI connects, we need to send it the table of highlights used so far.
-void ui_send_all_hls(UI *ui)
+void ui_send_all_hls(RemoteUI *ui)
 {
   for (size_t i = 1; i < set_size(&attr_entries); i++) {
-    Array inspect = hl_inspect((int)i);
+    Arena arena = ARENA_EMPTY;
+    Array inspect = hl_inspect((int)i, &arena);
     HlAttrs attr = attr_entry(i).attr;
     remote_ui_hl_attr_define(ui, (Integer)i, attr, attr, inspect);
-    api_free_array(inspect);
+    arena_mem_free(arena_finish(&arena));
   }
   for (size_t hlf = 0; hlf < HLF_COUNT; hlf++) {
-    remote_ui_hl_group_set(ui, cstr_as_string((char *)hlf_names[hlf]),
+    remote_ui_hl_group_set(ui, cstr_as_string(hlf_names[hlf]),
                            highlight_attr[hlf]);
   }
 }
@@ -201,24 +206,23 @@ int ns_get_hl(NS *ns_hl, int hl_id, bool link, bool nodefault)
   if (!valid_item && p->hl_def != LUA_NOREF && !recursive) {
     MAXSIZE_TEMP_ARRAY(args, 3);
     ADD_C(args, INTEGER_OBJ((Integer)ns_id));
-    ADD_C(args, CSTR_TO_OBJ(syn_id2name(hl_id)));
+    ADD_C(args, CSTR_AS_OBJ(syn_id2name(hl_id)));
     ADD_C(args, BOOLEAN_OBJ(link));
     // TODO(bfredl): preload the "global" attr dict?
 
     Error err = ERROR_INIT;
     recursive++;
-    Object ret = nlua_call_ref(p->hl_def, "hl_def", args, true, &err);
+    Object ret = nlua_call_ref(p->hl_def, "hl_def", args, kRetObject, NULL, &err);
     recursive--;
 
     // TODO(bfredl): or "inherit", combine with global value?
     bool fallback = true;
     int tmp = false;
     HlAttrs attrs = HLATTRS_INIT;
-    if (ret.type == kObjectTypeDictionary) {
+    if (ret.type == kObjectTypeDict) {
       fallback = false;
-      Dict(highlight) dict = { 0 };
-      if (api_dict_to_keydict(&dict, KeyDict_highlight_get_field,
-                              ret.data.dictionary, &err)) {
+      Dict(highlight) dict = KEYDICT_INIT;
+      if (api_dict_to_keydict(&dict, KeyDict_highlight_get_field, ret.data.dict, &err)) {
         attrs = dict2hlattrs(&dict, true, &it.link_id, &err);
         fallback = GET_BOOL_OR_TRUE(&dict, highlight, fallback);
         tmp = dict.fallback;  // or false
@@ -364,32 +368,35 @@ void update_window_hl(win_T *wp, bool invalid)
   // wp->w_hl_attr_normal group. HL_ATTR(HLF_NFLOAT) is always named.
 
   // determine window specific background set in 'winhighlight'
-  bool float_win = wp->w_floating && !wp->w_float_config.external;
-  if (float_win && hl_def[HLF_NFLOAT] != 0) {
+  bool float_win = wp->w_floating && !wp->w_config.external;
+  if (float_win && hl_def[HLF_NFLOAT] != 0 && ns_id > 0) {
     wp->w_hl_attr_normal = hl_def[HLF_NFLOAT];
-  } else if (hl_def[HLF_COUNT] > 0) {
-    wp->w_hl_attr_normal = hl_def[HLF_COUNT];
+  } else if (hl_def[HLF_NONE] > 0) {
+    wp->w_hl_attr_normal = hl_def[HLF_NONE];
+  } else if (float_win) {
+    wp->w_hl_attr_normal = HL_ATTR(HLF_NFLOAT) > 0
+                           ? HL_ATTR(HLF_NFLOAT) : highlight_attr[HLF_NFLOAT];
   } else {
-    wp->w_hl_attr_normal = float_win ? HL_ATTR(HLF_NFLOAT) : 0;
+    wp->w_hl_attr_normal = 0;
   }
 
   if (wp->w_floating) {
     wp->w_hl_attr_normal = hl_apply_winblend(wp, wp->w_hl_attr_normal);
   }
 
-  wp->w_float_config.shadow = false;
-  if (wp->w_floating && wp->w_float_config.border) {
+  wp->w_config.shadow = false;
+  if (wp->w_floating && wp->w_config.border) {
     for (int i = 0; i < 8; i++) {
       int attr = hl_def[HLF_BORDER];
-      if (wp->w_float_config.border_hl_ids[i]) {
+      if (wp->w_config.border_hl_ids[i]) {
         attr = hl_get_ui_attr(ns_id, HLF_BORDER,
-                              wp->w_float_config.border_hl_ids[i], false);
+                              wp->w_config.border_hl_ids[i], false);
       }
       attr = hl_apply_winblend(wp, attr);
       if (syn_attr2entry(attr).hl_blend > 0) {
-        wp->w_float_config.shadow = true;
+        wp->w_config.shadow = true;
       }
-      wp->w_float_config.border_attr[i] = attr;
+      wp->w_config.border_attr[i] = attr;
     }
   }
 
@@ -426,7 +433,7 @@ void update_ns_hl(int ns_id)
   }
   int *hl_attrs = **alloc;
 
-  for (int hlf = 0; hlf < HLF_COUNT; hlf++) {
+  for (int hlf = 1; hlf < HLF_COUNT; hlf++) {
     int id = syn_check_group(hlf_names[hlf], strlen(hlf_names[hlf]));
     bool optional = (hlf == HLF_INACTIVE || hlf == HLF_NFLOAT);
     hl_attrs[hlf] = hl_get_ui_attr(ns_id, hlf, id, optional);
@@ -437,7 +444,7 @@ void update_ns_hl(int ns_id)
   //
   // haha, tema engine go brrr
   int normality = syn_check_group(S_LEN("Normal"));
-  hl_attrs[HLF_COUNT] = hl_get_ui_attr(ns_id, -1, normality, true);
+  hl_attrs[HLF_NONE] = hl_get_ui_attr(ns_id, -1, normality, true);
 
   // hl_get_ui_attr might have invalidated the decor provider
   p = get_decor_provider(ns_id, true);
@@ -454,7 +461,7 @@ int win_bg_attr(win_T *wp)
   }
 
   if (wp == curwin || hl_attr_active[HLF_INACTIVE] == 0) {
-    return hl_attr_active[HLF_COUNT];
+    return hl_attr_active[HLF_NONE];
   } else {
     return hl_attr_active[HLF_INACTIVE];
   }
@@ -473,11 +480,49 @@ int hl_get_underline(void)
       .rgb_bg_color = -1,
       .rgb_sp_color = -1,
       .hl_blend = -1,
+      .url = -1,
     },
     .kind = kHlUI,
     .id1 = 0,
     .id2 = 0,
   });
+}
+
+/// Augment an existing attribute with a URL.
+///
+/// @param attr Existing attribute to combine with
+/// @param url The URL to associate with the highlight attribute
+/// @return Combined attribute
+int hl_add_url(int attr, const char *url)
+{
+  HlAttrs attrs = HLATTRS_INIT;
+
+  MHPutStatus status;
+  uint32_t k = set_put_idx(cstr_t, &urls, url, &status);
+  if (status != kMHExisting) {
+    urls.keys[k] = xstrdup(url);
+  }
+
+  attrs.url = (int32_t)k;
+
+  int new = get_attr_entry((HlEntry){
+    .attr = attrs,
+    .kind = kHlUI,
+    .id1 = 0,
+    .id2 = 0,
+  });
+
+  return hl_combine_attr(attr, new);
+}
+
+/// Get a URL by its index.
+///
+/// @param index URL index
+/// @return URL
+const char *hl_get_url(uint32_t index)
+{
+  assert(urls.keys);
+  return urls.keys[index];
 }
 
 /// Get attribute code for forwarded :terminal highlights.
@@ -490,12 +535,18 @@ int hl_get_term_attr(HlAttrs *aep)
 /// Clear all highlight tables.
 void clear_hl_tables(bool reinit)
 {
+  const char *url = NULL;
+  set_foreach(&urls, url, {
+    xfree((void *)url);
+  });
+
   if (reinit) {
     set_clear(HlEntry, &attr_entries);
     highlight_init();
     map_clear(int, &combine_attr_entries);
     map_clear(int, &blend_attr_entries);
     map_clear(int, &blendthrough_attr_entries);
+    set_clear(cstr_t, &urls);
     memset(highlight_attr_last, -1, sizeof(highlight_attr_last));
     highlight_attr_set_all();
     highlight_changed();
@@ -506,6 +557,7 @@ void clear_hl_tables(bool reinit)
     map_destroy(int, &blend_attr_entries);
     map_destroy(int, &blendthrough_attr_entries);
     map_destroy(ColorKey, &ns_hls);
+    set_destroy(cstr_t, &urls);
   }
 }
 
@@ -597,6 +649,10 @@ int hl_combine_attr(int char_attr, int prim_attr)
     new_en.hl_blend = prim_aep.hl_blend;
   }
 
+  if ((new_en.url == -1) && (prim_aep.url >= 0)) {
+    new_en.url = prim_aep.url;
+  }
+
   id = get_attr_entry((HlEntry){ .attr = new_en, .kind = kHlCombine,
                                  .id1 = char_attr, .id2 = prim_attr });
   if (id > 0) {
@@ -678,8 +734,8 @@ int hl_blend_attrs(int back_attr, int front_attr, bool *through)
     }
 
     cattrs.cterm_bg_color = fattrs.cterm_bg_color;
-    cattrs.cterm_fg_color = cterm_blend(ratio, battrs.cterm_fg_color,
-                                        fattrs.cterm_bg_color);
+    cattrs.cterm_fg_color = (int16_t)cterm_blend(ratio, battrs.cterm_fg_color,
+                                                 fattrs.cterm_bg_color);
     cattrs.rgb_ae_attr &= ~(HL_FG_INDEXED | HL_BG_INDEXED);
   } else {
     cattrs = fattrs;
@@ -713,7 +769,8 @@ int hl_blend_attrs(int back_attr, int front_attr, bool *through)
 
 static int rgb_blend(int ratio, int rgb1, int rgb2)
 {
-  int a = ratio, b = 100 - ratio;
+  int a = ratio;
+  int b = 100 - ratio;
   int r1 = (rgb1 & 0xFF0000) >> 16;
   int g1 = (rgb1 & 0x00FF00) >> 8;
   int b1 = (rgb1 & 0x0000FF) >> 0;
@@ -726,7 +783,7 @@ static int rgb_blend(int ratio, int rgb1, int rgb2)
   return (mr << 16) + (mg << 8) + mb;
 }
 
-static int cterm_blend(int ratio, int c1, int c2)
+static int cterm_blend(int ratio, int16_t c1, int16_t c2)
 {
   // 1. Convert cterm color numbers to RGB.
   // 2. Blend the RGB colors.
@@ -817,9 +874,9 @@ HlAttrs syn_attr2entry(int attr)
 }
 
 /// Gets highlight description for id `attr_id` as a map.
-Dictionary hl_get_attr_by_id(Integer attr_id, Boolean rgb, Arena *arena, Error *err)
+Dict hl_get_attr_by_id(Integer attr_id, Boolean rgb, Arena *arena, Error *err)
 {
-  Dictionary dic = ARRAY_DICT_INIT;
+  Dict dic = ARRAY_DICT_INIT;
 
   if (attr_id == 0) {
     return dic;
@@ -830,19 +887,19 @@ Dictionary hl_get_attr_by_id(Integer attr_id, Boolean rgb, Arena *arena, Error *
                   "Invalid attribute id: %" PRId64, attr_id);
     return dic;
   }
-  Dictionary retval = arena_dict(arena, HLATTRS_DICT_SIZE);
+  Dict retval = arena_dict(arena, HLATTRS_DICT_SIZE);
   hlattrs2dict(&retval, NULL, syn_attr2entry((int)attr_id), rgb, false);
   return retval;
 }
 
-/// Converts an HlAttrs into Dictionary
+/// Converts an HlAttrs into Dict
 ///
-/// @param[in/out] hl Dictionary with pre-allocated space for HLATTRS_DICT_SIZE elements
+/// @param[in/out] hl Dict with pre-allocated space for HLATTRS_DICT_SIZE elements
 /// @param[in] aep data to convert
 /// @param use_rgb use 'gui*' settings if true, else resorts to 'cterm*'
 /// @param short_keys change (foreground, background, special) to (fg, bg, sp) for 'gui*' settings
 ///                          (foreground, background) to (ctermfg, ctermbg) for 'cterm*' settings
-void hlattrs2dict(Dictionary *hl, Dictionary *hl_attrs, HlAttrs ae, bool use_rgb, bool short_keys)
+void hlattrs2dict(Dict *hl, Dict *hl_attrs, HlAttrs ae, bool use_rgb, bool short_keys)
 {
   hl_attrs = hl_attrs ? hl_attrs : hl;
   assert(hl->capacity >= HLATTRS_DICT_SIZE);  // at most 16 items
@@ -940,7 +997,11 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, Error *e
 {
 #define HAS_KEY_X(d, key) HAS_KEY(d, highlight, key)
   HlAttrs hlattrs = HLATTRS_INIT;
-  int32_t fg = -1, bg = -1, ctermfg = -1, ctermbg = -1, sp = -1;
+  int32_t fg = -1;
+  int32_t bg = -1;
+  int32_t ctermfg = -1;
+  int32_t ctermbg = -1;
+  int32_t sp = -1;
   int blend = -1;
   int16_t mask = 0;
   int16_t cterm_mask = 0;
@@ -1014,10 +1075,10 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, Error *e
       return hlattrs;
     }
     if (HAS_KEY_X(dict, global_link)) {
-      *link_id = object_to_hl_id(dict->global_link, "link", err);
+      *link_id = (int)dict->global_link;
       mask |= HL_GLOBAL;
     } else {
-      *link_id = object_to_hl_id(dict->link, "link", err);
+      *link_id = (int)dict->link;
     }
 
     if (ERROR_SET(err)) {
@@ -1026,10 +1087,10 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, Error *e
   }
 
   // Handle cterm attrs
-  if (dict->cterm.type == kObjectTypeDictionary) {
-    Dict(highlight_cterm) cterm[1] = { 0 };
+  if (dict->cterm.type == kObjectTypeDict) {
+    Dict(highlight_cterm) cterm[1] = KEYDICT_INIT;
     if (!api_dict_to_keydict(cterm, KeyDict_highlight_cterm_get_field,
-                             dict->cterm.data.dictionary, err)) {
+                             dict->cterm.data.dict, err)) {
       return hlattrs;
     }
 
@@ -1039,6 +1100,9 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, Error *e
     CHECK_FLAG(cterm, cterm_mask, italic, , HL_ITALIC);
     CHECK_FLAG(cterm, cterm_mask, underline, , HL_UNDERLINE);
     CHECK_FLAG(cterm, cterm_mask, undercurl, , HL_UNDERCURL);
+    CHECK_FLAG(cterm, cterm_mask, underdouble, , HL_UNDERDOUBLE);
+    CHECK_FLAG(cterm, cterm_mask, underdotted, , HL_UNDERDOTTED);
+    CHECK_FLAG(cterm, cterm_mask, underdashed, , HL_UNDERDASHED);
     CHECK_FLAG(cterm, cterm_mask, standout, , HL_STANDOUT);
     CHECK_FLAG(cterm, cterm_mask, strikethrough, , HL_STRIKETHROUGH);
     CHECK_FLAG(cterm, cterm_mask, altfont, , HL_ALTFONT);
@@ -1078,12 +1142,12 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, Error *e
     hlattrs.rgb_fg_color = fg;
     hlattrs.rgb_sp_color = sp;
     hlattrs.hl_blend = blend;
-    hlattrs.cterm_bg_color = ctermbg == -1 ? 0 : ctermbg + 1;
-    hlattrs.cterm_fg_color = ctermfg == -1 ? 0 : ctermfg + 1;
+    hlattrs.cterm_bg_color = ctermbg == -1 ? 0 : (int16_t)(ctermbg + 1);
+    hlattrs.cterm_fg_color = ctermfg == -1 ? 0 : (int16_t)(ctermfg + 1);
     hlattrs.cterm_ae_attr = cterm_mask;
   } else {
-    hlattrs.cterm_bg_color = bg == -1 ? 0 : bg + 1;
-    hlattrs.cterm_fg_color = fg == -1 ? 0 : fg + 1;
+    hlattrs.cterm_bg_color = bg == -1 ? 0 : (int16_t)(bg + 1);
+    hlattrs.cterm_fg_color = fg == -1 ? 0 : (int16_t)(fg + 1);
     hlattrs.cterm_ae_attr = mask;
   }
 
@@ -1119,19 +1183,32 @@ int object_to_color(Object val, char *key, bool rgb, Error *err)
   }
 }
 
-Array hl_inspect(int attr)
+Array hl_inspect(int attr, Arena *arena)
 {
-  // TODO(bfredl): use arena allocation
-  Array ret = ARRAY_DICT_INIT;
-  if (hlstate_active) {
-    hl_inspect_impl(&ret, attr);
+  if (!hlstate_active) {
+    return (Array)ARRAY_DICT_INIT;
   }
+  Array ret = arena_array(arena, hl_inspect_size(attr));
+  hl_inspect_impl(&ret, attr, arena);
   return ret;
 }
 
-static void hl_inspect_impl(Array *arr, int attr)
+static size_t hl_inspect_size(int attr)
 {
-  Dictionary item = ARRAY_DICT_INIT;
+  if (attr <= 0 || attr >= (int)set_size(&attr_entries)) {
+    return 0;
+  }
+
+  HlEntry e = attr_entry(attr);
+  if (e.kind == kHlCombine || e.kind == kHlBlend || e.kind == kHlBlendThrough) {
+    return hl_inspect_size(e.id1) + hl_inspect_size(e.id2);
+  }
+  return 1;
+}
+
+static void hl_inspect_impl(Array *arr, int attr, Arena *arena)
+{
+  Dict item = ARRAY_DICT_INIT;
   if (attr <= 0 || attr >= (int)set_size(&attr_entries)) {
     return;
   }
@@ -1139,35 +1216,36 @@ static void hl_inspect_impl(Array *arr, int attr)
   HlEntry e = attr_entry(attr);
   switch (e.kind) {
   case kHlSyntax:
-    PUT(item, "kind", CSTR_TO_OBJ("syntax"));
-    PUT(item, "hi_name",
-        CSTR_TO_OBJ(syn_id2name(e.id1)));
+    item = arena_dict(arena, 3);
+    PUT_C(item, "kind", CSTR_AS_OBJ("syntax"));
+    PUT_C(item, "hi_name", CSTR_AS_OBJ(syn_id2name(e.id1)));
     break;
 
   case kHlUI:
-    PUT(item, "kind", CSTR_TO_OBJ("ui"));
+    item = arena_dict(arena, 4);
+    PUT_C(item, "kind", CSTR_AS_OBJ("ui"));
     const char *ui_name = (e.id1 == -1) ? "Normal" : hlf_names[e.id1];
-    PUT(item, "ui_name", CSTR_TO_OBJ(ui_name));
-    PUT(item, "hi_name",
-        CSTR_TO_OBJ(syn_id2name(e.id2)));
+    PUT_C(item, "ui_name", CSTR_AS_OBJ(ui_name));
+    PUT_C(item, "hi_name", CSTR_AS_OBJ(syn_id2name(e.id2)));
     break;
 
   case kHlTerminal:
-    PUT(item, "kind", CSTR_TO_OBJ("term"));
+    item = arena_dict(arena, 2);
+    PUT_C(item, "kind", CSTR_AS_OBJ("term"));
     break;
 
   case kHlCombine:
   case kHlBlend:
   case kHlBlendThrough:
     // attribute combination is associative, so flatten to an array
-    hl_inspect_impl(arr, e.id1);
-    hl_inspect_impl(arr, e.id2);
+    hl_inspect_impl(arr, e.id1, arena);
+    hl_inspect_impl(arr, e.id2, arena);
     return;
 
   case kHlUnknown:
   case kHlInvalid:
     return;
   }
-  PUT(item, "id", INTEGER_OBJ(attr));
-  ADD(*arr, DICTIONARY_OBJ(item));
+  PUT_C(item, "id", INTEGER_OBJ(attr));
+  ADD_C(*arr, DICT_OBJ(item));
 }

@@ -4,20 +4,23 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/types.h>
+#include <uv.h>
 
 #include "nvim/ascii_defs.h"
 #include "nvim/charset.h"
+#include "nvim/errors.h"
 #include "nvim/eval/typval_defs.h"
 #include "nvim/eval/vars.h"
-#include "nvim/gettext.h"
+#include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
 #include "nvim/keycodes.h"
 #include "nvim/macros_defs.h"
 #include "nvim/mbyte.h"
+#include "nvim/mbyte_defs.h"
 #include "nvim/memory.h"
 #include "nvim/message.h"
 #include "nvim/mouse.h"
+#include "nvim/option_vars.h"
 #include "nvim/strings.h"
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
@@ -398,7 +401,7 @@ int name_to_mod_mask(int c)
 int simplify_key(const int key, int *modifiers)
   FUNC_ATTR_WARN_UNUSED_RESULT FUNC_ATTR_NONNULL_ALL
 {
-  if (!(*modifiers & (MOD_MASK_SHIFT | MOD_MASK_CTRL | MOD_MASK_ALT))) {
+  if (!(*modifiers & (MOD_MASK_SHIFT | MOD_MASK_CTRL))) {
     return key;
   }
 
@@ -756,17 +759,20 @@ static int extract_modifiers(int key, int *modp, const bool simplify, bool *cons
 {
   int modifiers = *modp;
 
-  // Command-key and ctrl are special
-  if (!(modifiers & MOD_MASK_CMD) && !(modifiers & MOD_MASK_CTRL)) {
-    if ((modifiers & MOD_MASK_SHIFT) && ASCII_ISALPHA(key)) {
-      key = TOUPPER_ASC(key);
+  if ((modifiers & MOD_MASK_SHIFT) && ASCII_ISALPHA(key)) {
+    key = TOUPPER_ASC(key);
+    // With <C-S-a> we keep the shift modifier.
+    // With <S-a>, <A-S-a> and <S-A> we don't keep the shift modifier.
+    if (!(modifiers & MOD_MASK_CTRL)) {
       modifiers &= ~MOD_MASK_SHIFT;
     }
   }
+
   // <C-H> and <C-h> mean the same thing, always use "H"
   if ((modifiers & MOD_MASK_CTRL) && ASCII_ISALPHA(key)) {
     key = TOUPPER_ASC(key);
   }
+
   if (simplify && (modifiers & MOD_MASK_CTRL)
       && ((key >= '?' && key <= '_') || ASCII_ISALPHA(key))) {
     key = CTRL_CHR(key);
@@ -852,8 +858,8 @@ int get_mouse_button(int code, bool *is_click, bool *is_drag)
 /// K_SPECIAL by itself is replaced by K_SPECIAL KS_SPECIAL KE_FILLER.
 ///
 /// When "flags" has REPTERM_FROM_PART, trailing <C-v> is included, otherwise it is removed (to make
-/// ":map xx ^V" map xx to nothing). When cpo_flags contains FLAG_CPO_BSLASH, a backslash can be
-/// used in place of <C-v>. All other <C-v> characters are removed.
+/// ":map xx ^V" map xx to nothing). When cpo_val contains CPO_BSLASH, a backslash can be used in
+/// place of <C-v>. All other <C-v> characters are removed.
 ///
 /// @param[in]  from  What characters to replace.
 /// @param[in]  from_len  Length of the "from" argument.
@@ -867,20 +873,19 @@ int get_mouse_button(int code, bool *is_click, bool *is_drag)
 ///                    REPTERM_NO_SPECIAL   do not accept <key> notation
 ///                    REPTERM_NO_SIMPLIFY  do not simplify <C-H> into 0x08, etc.
 /// @param[out]  did_simplify  set when some <C-H> code was simplified, unless it is NULL.
-/// @param[in]  cpo_flags  Relevant flags derived from p_cpo, see CPO_TO_CPO_FLAGS.
+/// @param[in]  cpo_val  The value of 'cpoptions' to use. Only CPO_BSLASH matters.
 ///
 /// @return  The same as what `*bufp` is set to.
 char *replace_termcodes(const char *const from, const size_t from_len, char **const bufp,
                         const scid_T sid_arg, const int flags, bool *const did_simplify,
-                        const int cpo_flags)
-  FUNC_ATTR_NONNULL_ARG(1, 3)
+                        const char *const cpo_val)
+  FUNC_ATTR_NONNULL_ARG(1, 3, 7)
 {
-  char key;
   size_t dlen = 0;
-  const char *src;
   const char *const end = from + from_len - 1;
 
-  const bool do_backslash = !(cpo_flags & FLAG_CPO_BSLASH);  // backslash is a special character
+  // backslash is a special character
+  const bool do_backslash = (vim_strchr(cpo_val, CPO_BSLASH) == NULL);
   const bool do_special = !(flags & REPTERM_NO_SPECIAL);
 
   bool allocated = (*bufp == NULL);
@@ -890,7 +895,7 @@ char *replace_termcodes(const char *const from, const size_t from_len, char **co
   const size_t buf_len = allocated ? from_len * 6 + 1 : 128;
   char *result = allocated ? xmalloc(buf_len) : *bufp;  // buffer for resulting string
 
-  src = from;
+  const char *src = from;
 
   // Copy each byte from *from to result[dlen]
   while (src <= end) {
@@ -912,7 +917,7 @@ char *replace_termcodes(const char *const from, const size_t from_len, char **co
           result[dlen++] = (char)K_SPECIAL;
           result[dlen++] = (char)KS_EXTRA;
           result[dlen++] = KE_SNR;
-          snprintf(result + dlen, buf_len - dlen, "%" PRId64, (int64_t)sid);
+          snprintf(result + dlen, buf_len - dlen, "%" PRIdSCID, sid);
           dlen += strlen(result + dlen);
           result[dlen++] = '_';
           continue;
@@ -965,7 +970,7 @@ char *replace_termcodes(const char *const from, const size_t from_len, char **co
     // For "from" side the CTRL-V at the end is included, for the "to"
     // part it is removed.
     // If 'cpoptions' does not contain 'B', also accept a backslash.
-    key = *src;
+    char key = *src;
     if (key == Ctrl_V || (do_backslash && key == '\\')) {
       src++;  // skip CTRL-V or backslash
       if (src > end) {
@@ -1058,7 +1063,8 @@ char *vim_strsave_escape_ks(char *p)
 /// vim_strsave_escape_ks().  Works in-place.
 void vim_unescape_ks(char *p)
 {
-  uint8_t *s = (uint8_t *)p, *d = (uint8_t *)p;
+  uint8_t *s = (uint8_t *)p;
+  uint8_t *d = (uint8_t *)p;
 
   while (*s != NUL) {
     if (s[0] == K_SPECIAL && s[1] == KS_SPECIAL && s[2] == KE_FILLER) {

@@ -26,7 +26,7 @@ module.exports = async ({ github, context }) => {
         repo: repo,
         issue_number: number,
       },
-      (response) => response.data.filter(labeledEvent)
+      (response) => response.data.filter(labeledEvent),
     );
 
     const latest_response_label = events[events.length - 1];
@@ -41,6 +41,7 @@ module.exports = async ({ github, context }) => {
         owner: owner,
         repo: repo,
         issue_number: number,
+        state_reason: "not_planned",
         state: "closed",
       });
 

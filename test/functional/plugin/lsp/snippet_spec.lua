@@ -1,13 +1,15 @@
-local helpers = require('test.functional.helpers')(after_each)
+local t = require('test.testutil')
+local n = require('test.functional.testnvim')()
+
 local snippet = require('vim.lsp._snippet_grammar')
 local type = snippet.NodeType
 
-local eq = helpers.eq
-local exec_lua = helpers.exec_lua
+local eq = t.eq
+local exec_lua = n.exec_lua
 
 describe('vim.lsp._snippet_grammar', function()
-  before_each(helpers.clear)
-  after_each(helpers.clear)
+  before_each(n.clear)
+  after_each(n.clear)
 
   local parse = function(...)
     local res = exec_lua('return require("vim.lsp._snippet_grammar").parse(...)', ...)

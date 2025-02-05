@@ -1,24 +1,23 @@
-local helpers = require('test.functional.helpers')(after_each)
+local t = require('test.testutil')
+local n = require('test.functional.testnvim')()
 
-local assert_alive = helpers.assert_alive
-local command = helpers.command
-local feed_command = helpers.feed_command
-local feed = helpers.feed
-local eval = helpers.eval
-local eq = helpers.eq
-local run = helpers.run
-local funcs = helpers.funcs
-local nvim_prog = helpers.nvim_prog
-local pcall_err = helpers.pcall_err
-local exec_capture = helpers.exec_capture
-local poke_eventloop = helpers.poke_eventloop
+local assert_alive = n.assert_alive
+local command = n.command
+local feed_command = n.feed_command
+local feed = n.feed
+local eval = n.eval
+local eq = t.eq
+local run = n.run
+local pcall_err = t.pcall_err
+local exec_capture = n.exec_capture
+local poke_eventloop = n.poke_eventloop
 
 describe('v:exiting', function()
   local cid
 
   before_each(function()
-    helpers.clear()
-    cid = helpers.nvim('get_api_info')[1]
+    n.clear()
+    cid = n.api.nvim_get_chan_info(0).id
   end)
 
   it('defaults to v:null', function()
@@ -27,8 +26,8 @@ describe('v:exiting', function()
 
   local function test_exiting(setup_fn)
     local function on_setup()
-      command('autocmd VimLeavePre * call rpcrequest('..cid..', "exit", "VimLeavePre")')
-      command('autocmd VimLeave    * call rpcrequest('..cid..', "exit", "VimLeave")')
+      command('autocmd VimLeavePre * call rpcrequest(' .. cid .. ', "exit", "VimLeavePre")')
+      command('autocmd VimLeave    * call rpcrequest(' .. cid .. ', "exit", "VimLeave")')
       setup_fn()
     end
     local requests_args = {}
@@ -39,7 +38,7 @@ describe('v:exiting', function()
       return ''
     end
     run(on_request, nil, on_setup)
-    eq({{'VimLeavePre'}, {'VimLeave'}}, requests_args)
+    eq({ { 'VimLeavePre' }, { 'VimLeave' } }, requests_args)
   end
 
   it('is 0 on normal exit', function()
@@ -59,17 +58,22 @@ end)
 describe(':cquit', function()
   local function test_cq(cmdline, exit_code, redir_msg)
     if redir_msg then
-      eq(redir_msg, pcall_err(function() return exec_capture(cmdline) end))
+      eq(
+        redir_msg,
+        pcall_err(function()
+          return exec_capture(cmdline)
+        end)
+      )
       poke_eventloop()
       assert_alive()
     else
-      funcs.system({nvim_prog, '-u', 'NONE', '-i', 'NONE', '--headless', '--cmd', cmdline})
-      eq(exit_code, eval('v:shell_error'))
+      local p = n.spawn_wait('--cmd', cmdline)
+      eq(exit_code, p.status)
     end
   end
 
   before_each(function()
-    helpers.clear()
+    n.clear()
   end)
 
   it('exits with non-zero after :cquit', function()

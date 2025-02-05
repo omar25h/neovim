@@ -27,7 +27,7 @@ depends on the 'shortmess' option.
 				Clear messages, keeping only the {count} most
 				recent ones.
 
-The number of remembered messages is fixed at 200.
+The number of remembered messages is determined by the 'messagesopt' option.
 
 								*g<*
 The "g<" command can be used to see the last page of previous command output.
@@ -114,6 +114,13 @@ wiped out a buffer which contains a mark or is referenced in another way.
 You cannot have two buffers with exactly the same name.  This includes the
 path leading to the file.
 
+							*E1513* >
+  Cannot switch buffer. 'winfixbuf' is enabled
+
+If a window has 'winfixbuf' enabled, you cannot change that window's current
+buffer. You need to set 'nowinfixbuf' before continuing. You may use [!] to
+force the window to switch buffers, if your command supports it.
+
 							*E72*  >
   Close error on swap file
 
@@ -127,8 +134,6 @@ This happens when an Ex command executes an Ex command that executes an Ex
 command, etc.  The limit is 200 or the value of 'maxfuncdepth', whatever is
 larger.  When it's more there probably is an endless loop.  Probably a
 |:execute| or |:source| command is involved.
-Can also happen with a recursive callback function (|channel-callback|).
-A limit of 20 is used here.
 
 							*E254*  >
   Cannot allocate color {name}
@@ -685,6 +690,7 @@ Ex command or function was given an invalid argument. Or |jobstart()| or
 
 							*E488*  >
   Trailing characters
+  Trailing characters: {text}
 
 An argument was given to an Ex command that does not permit one.
 Or the argument has invalid characters and has not been recognized.
@@ -751,7 +757,7 @@ src/ex_cmds.lua.  Update the lookup table by re-running the build. >
 This is an (incomplete) overview of various messages that Vim gives:
 
 			*hit-enter* *press-enter* *hit-return*
-			*press-return* *hit-enter-prompt*
+			*press-return* *hit-enter-prompt*  >
 
   Press ENTER or type command to continue
 
@@ -783,6 +789,7 @@ If you accidentally hit <Enter> or <Space> and you want to see the displayed
 text then use |g<|.  This only works when 'more' is set.
 
 To reduce the number of hit-enter prompts:
+- Set 'messagesopt'.
 - Set 'cmdheight' to 2 or higher.
 - Add flags to 'shortmess'.
 - Reset 'showcmd' and/or 'ruler'.

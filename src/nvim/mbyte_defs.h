@@ -1,6 +1,8 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
+#include <utf8proc.h>
 
 #include "nvim/iconv_defs.h"
 
@@ -9,7 +11,7 @@ enum {
   /// character of up to 6 bytes, or one 16-bit character of up to three bytes
   /// plus six following composing characters of three bytes each.
   MB_MAXBYTES = 21,
-  /// max length of an unicode char
+  /// Maximum length of a Unicode character, excluding composing characters.
   MB_MAXCHAR = 6,
 };
 
@@ -55,3 +57,22 @@ typedef struct {
   bool vc_fail;   ///< What to do with invalid characters: if true, fail,
                   ///< otherwise use '?'.
 } vimconv_T;
+
+typedef struct {
+  int32_t value;  ///< Code point.
+  int len;        ///< Length in bytes.
+} CharInfo;
+
+typedef struct {
+  char *ptr;     ///< Pointer to the first byte of the character.
+  CharInfo chr;  ///< Information about the character.
+} StrCharInfo;
+
+typedef struct {
+  int8_t begin_off;  ///< Offset to the first byte of the codepoint.
+  int8_t end_off;    ///< Offset to one past the end byte of the codepoint.
+} CharBoundsOff;
+
+typedef utf8proc_int32_t GraphemeState;
+
+enum { UNICODE_INVALID = 0xFFFD, };

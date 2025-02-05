@@ -799,10 +799,10 @@ func Test_expr_completion()
   call assert_equal('"echo 1 || g:tvar1 g:tvar2', @:)
 
   " completion for options
-  call feedkeys(":echo &compat\<C-A>\<C-B>\"\<CR>", 'xt')
-  call assert_equal('"echo &compatible', @:)
-  call feedkeys(":echo 1 && &compat\<C-A>\<C-B>\"\<CR>", 'xt')
-  call assert_equal('"echo 1 && &compatible', @:)
+  "call feedkeys(":echo &compat\<C-A>\<C-B>\"\<CR>", 'xt')
+  "call assert_equal('"echo &compatible', @:)
+  "call feedkeys(":echo 1 && &compat\<C-A>\<C-B>\"\<CR>", 'xt')
+  "call assert_equal('"echo 1 && &compatible', @:)
   call feedkeys(":echo &g:equala\<C-A>\<C-B>\"\<CR>", 'xt')
   call assert_equal('"echo &g:equalalways', @:)
 
@@ -883,7 +883,7 @@ func Test_string_interp()
     #" String conversion.
     call assert_equal('hello from ' .. v:version, $"hello from {v:version}")
     call assert_equal('hello from ' .. v:version, $'hello from {v:version}')
-    #" Paper over a small difference between VimScript behaviour.
+    #" Paper over a small difference between Vim script behaviour.
     call assert_equal(string(v:true), $"{v:true}")
     call assert_equal('(1+1=2)', $"(1+1={1 + 1})")
     #" Hex-escaped opening brace: char2nr('{') == 0x7b
@@ -903,6 +903,22 @@ func Test_string_interp()
       echo "${ LET tmp += 1 }"
     endif
     call assert_equal(0, tmp)
+
+    #" Dict interpolation
+    VAR d = {'a': 10, 'b': [1, 2]}
+    call assert_equal("{'a': 10, 'b': [1, 2]}", $'{d}')
+    VAR emptydict = {}
+    call assert_equal("a{}b", $'a{emptydict}b')
+    VAR nulldict = v:_null_dict
+    call assert_equal("a{}b", $'a{nulldict}b')
+
+    #" List interpolation
+    VAR l = ['a', 'b', 'c']
+    call assert_equal("['a', 'b', 'c']", $'{l}')
+    VAR emptylist = []
+    call assert_equal("a[]b", $'a{emptylist}b')
+    VAR nulllist = v:_null_list
+    call assert_equal("a[]b", $'a{nulllist}b')
 
     #" Stray closing brace.
     call assert_fails('echo $"moo}"', 'E1278:')

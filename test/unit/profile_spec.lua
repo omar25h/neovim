@@ -1,10 +1,10 @@
-local helpers = require('test.unit.helpers')(after_each)
-local itp = helpers.gen_itp(it)
+local t = require('test.unit.testutil')
+local itp = t.gen_itp(it)
 
-local cimport = helpers.cimport
-local ffi = helpers.ffi
-local eq = helpers.eq
-local neq = helpers.neq
+local cimport = t.cimport
+local ffi = t.ffi
+local eq = t.eq
+local neq = t.neq
 
 local prof = cimport('./src/nvim/profile.h')
 
@@ -13,13 +13,13 @@ local function split(inputstr, sep)
     sep = '%s'
   end
 
-  local t, i = {}, 1
+  local q, i = {}, 1
   for str in string.gmatch(inputstr, '([^' .. sep .. ']+)') do
-    t[i] = str
+    q[i] = str
     i = i + 1
   end
 
-  return t
+  return q
 end
 
 local function trim(s)
@@ -72,8 +72,8 @@ describe('profiling related functions', function()
   local function profile_start()
     return prof.profile_start()
   end
-  local function profile_end(t)
-    return prof.profile_end(t)
+  local function profile_end(q)
+    return prof.profile_end(q)
   end
   local function profile_zero()
     return prof.profile_zero()
@@ -81,8 +81,8 @@ describe('profiling related functions', function()
   local function profile_setlimit(ms)
     return prof.profile_setlimit(ms)
   end
-  local function profile_passed_limit(t)
-    return prof.profile_passed_limit(t)
+  local function profile_passed_limit(q)
+    return prof.profile_passed_limit(q)
   end
   local function profile_add(t1, t2)
     return prof.profile_add(t1, t2)
@@ -90,8 +90,8 @@ describe('profiling related functions', function()
   local function profile_sub(t1, t2)
     return prof.profile_sub(t1, t2)
   end
-  local function profile_divide(t, cnt)
-    return prof.profile_divide(t, cnt)
+  local function profile_divide(q, cnt)
+    return prof.profile_divide(q, cnt)
   end
   local function profile_cmp(t1, t2)
     return prof.profile_cmp(t1, t2)
@@ -99,12 +99,12 @@ describe('profiling related functions', function()
   local function profile_equal(t1, t2)
     return prof.profile_equal(t1, t2)
   end
-  local function profile_msg(t)
-    return ffi.string(prof.profile_msg(t))
+  local function profile_msg(q)
+    return ffi.string(prof.profile_msg(q))
   end
 
-  local function toseconds(t) -- luacheck: ignore
-    local str = trim(profile_msg(t))
+  local function toseconds(q) -- luacheck: ignore
+    local str = trim(profile_msg(q))
     local spl = split(str, '.')
     local s, us = spl[1], spl[2]
     return tonumber(s) + tonumber(us) / 1000000
@@ -229,7 +229,7 @@ describe('profiling related functions', function()
   describe('profile_msg', function()
     itp('prints the zero time as 0.00000', function()
       local str = trim(profile_msg(profile_zero()))
-      eq(str, '0.000000')
+      eq('0.000000', str)
     end)
 
     itp('prints the time passed, in seconds.microsends', function()
@@ -245,7 +245,7 @@ describe('profiling related functions', function()
 
       -- zero seconds have passed (if this is not true, either LuaJIT is too
       -- slow or the profiling functions are too slow and need to be fixed)
-      eq(s, '0')
+      eq('0', s)
 
       -- more or less the same goes for the microsecond part, if it doesn't
       -- start with 0, it's too slow.

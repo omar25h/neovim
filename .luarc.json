@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/LuaLS/vscode-lua/master/setting/schema.json",
   "runtime": {
-      "version": "LuaJIT"
+    "version": "LuaJIT"
   },
   "workspace": {
     "library": [
@@ -10,9 +10,10 @@
       "${3rd}/luv/library"
     ],
     "ignoreDir": [
-      "test"
+      "test",
+      "_vim9script.lua"
     ],
-    "checkThirdParty": false
+    "checkThirdParty": "Disable"
   },
   "diagnostics": {
     "groupFileStatus": {

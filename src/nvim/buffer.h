@@ -1,18 +1,14 @@
 #pragma once
 
-#include <assert.h>
-#include <stdbool.h>
-#include <stddef.h>
+#include <stdint.h>
 
-#include "nvim/buffer_defs.h"  // IWYU pragma: export
-#include "nvim/eval/typval.h"
+#include "nvim/buffer_defs.h"  // IWYU pragma: keep
 #include "nvim/eval/typval_defs.h"
-#include "nvim/ex_cmds_defs.h"
-#include "nvim/func_attr.h"
+#include "nvim/ex_cmds_defs.h"  // IWYU pragma: keep
+#include "nvim/gettext_defs.h"  // IWYU pragma: keep
 #include "nvim/macros_defs.h"
-#include "nvim/memline.h"
-#include "nvim/memline_defs.h"
-#include "nvim/pos_defs.h"
+#include "nvim/marktree_defs.h"
+#include "nvim/types_defs.h"
 
 /// Values for buflist_getfile()
 enum getf_values {
@@ -42,7 +38,7 @@ enum bln_values {
   BLN_NOCURWIN = 128,  ///< buffer is not associated with curwin
 };
 
-/// Values for action argument for do_buffer()
+/// Values for action argument for do_buffer_ext() and close_buffer()
 enum dobuf_action_values {
   DOBUF_GOTO   = 0,  ///< go to specified buffer
   DOBUF_SPLIT  = 1,  ///< split window and go to specified buffer
@@ -51,12 +47,19 @@ enum dobuf_action_values {
   DOBUF_WIPE   = 4,  ///< delete specified buffer(s) really
 };
 
-/// Values for start argument for do_buffer()
+/// Values for start argument for do_buffer_ext()
 enum dobuf_start_values {
   DOBUF_CURRENT = 0,  ///< "count" buffer from current buffer
   DOBUF_FIRST   = 1,  ///< "count" buffer from first buffer
   DOBUF_LAST    = 2,  ///< "count" buffer from last buffer
   DOBUF_MOD     = 3,  ///< "count" mod. buffer from current buffer
+};
+
+/// Values for flags argument of do_buffer_ext()
+enum dobuf_flags_value {
+  DOBUF_FORCEIT  = 1,  ///< :cmd!
+  DOBUF_SKIPHELP = 4,  ///< skip or keep help buffers depending on b_help of the
+                       ///< starting buffer
 };
 
 /// flags for buf_freeall()
@@ -72,43 +75,8 @@ EXTERN char *msg_qflist INIT( = N_("[Quickfix List]"));
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "buffer.h.generated.h"
+# include "buffer.h.inline.generated.h"
 #endif
-
-static inline void buf_set_changedtick(buf_T *buf, varnumber_T changedtick)
-  REAL_FATTR_NONNULL_ALL REAL_FATTR_ALWAYS_INLINE;
-
-/// Set b:changedtick, also checking b: for consistency in debug build
-///
-/// @param[out]  buf  Buffer to set changedtick in.
-/// @param[in]  changedtick  New value.
-static inline void buf_set_changedtick(buf_T *const buf, const varnumber_T changedtick)
-{
-  typval_T old_val = buf->changedtick_di.di_tv;
-
-#ifndef NDEBUG
-  dictitem_T *const changedtick_di = tv_dict_find(buf->b_vars, S_LEN("changedtick"));
-  assert(changedtick_di != NULL);
-  assert(changedtick_di->di_tv.v_type == VAR_NUMBER);
-  assert(changedtick_di->di_tv.v_lock == VAR_FIXED);
-  // For some reason formatc does not like the below.
-# ifndef UNIT_TESTING_LUA_PREPROCESSING
-  assert(changedtick_di->di_flags == (DI_FLAGS_RO|DI_FLAGS_FIX));
-# endif
-  assert(changedtick_di == (dictitem_T *)&buf->changedtick_di);
-#endif
-  buf->changedtick_di.di_tv.vval.v_number = changedtick;
-
-  if (tv_dict_is_watched(buf->b_vars)) {
-    tv_dict_watcher_notify(buf->b_vars,
-                           (char *)buf->changedtick_di.di_key,
-                           &buf->changedtick_di.di_tv,
-                           &old_val);
-  }
-}
-
-static inline varnumber_T buf_get_changedtick(const buf_T *buf)
-  REAL_FATTR_NONNULL_ALL REAL_FATTR_ALWAYS_INLINE REAL_FATTR_PURE
-  REAL_FATTR_WARN_UNUSED_RESULT;
 
 /// Get b:changedtick value
 ///
@@ -116,24 +84,13 @@ static inline varnumber_T buf_get_changedtick(const buf_T *buf)
 ///
 /// @param[in]  buf  Buffer to get b:changedtick from.
 static inline varnumber_T buf_get_changedtick(const buf_T *const buf)
+  FUNC_ATTR_NONNULL_ALL FUNC_ATTR_ALWAYS_INLINE FUNC_ATTR_PURE
+  FUNC_ATTR_WARN_UNUSED_RESULT
 {
   return buf->changedtick_di.di_tv.vval.v_number;
 }
 
-static inline void buf_inc_changedtick(buf_T *buf)
-  REAL_FATTR_NONNULL_ALL REAL_FATTR_ALWAYS_INLINE;
-
-/// Increment b:changedtick value
-///
-/// Also checks b: for consistency in case of debug build.
-///
-/// @param[in,out]  buf  Buffer to increment value in.
-static inline void buf_inc_changedtick(buf_T *const buf)
+static inline uint32_t buf_meta_total(const buf_T *b, MetaIndex m)
 {
-  buf_set_changedtick(buf, buf_get_changedtick(buf) + 1);
-}
-
-static inline bool buf_is_empty(buf_T *buf)
-{
-  return buf->b_ml.ml_line_count == 1 && *ml_get_buf(buf, 1) == '\0';
+  return b->b_marktree->meta_root[m];
 }

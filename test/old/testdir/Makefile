@@ -41,19 +41,21 @@ ifdef USE_VALGRIND
 	                 --leak-check=yes    \
 	                 --track-origins=yes
 #        VALGRIND_TOOL := exp-sgcheck
-	TOOL := valgrind -q                                     \
-	                 -q                                     \
-	                 $(VALGRIND_TOOL)                       \
-	                 --suppressions=../../.valgrind.supp \
-	                 --error-exitcode=123                   \
-	                 --log-file=valgrind-\%p.$*             \
-	                 $(VGDB)                                \
+	TOOL := valgrind -q                                         \
+	                 -q                                         \
+	                 $(VALGRIND_TOOL)                           \
+	                 --suppressions=../../../src/.valgrind.supp \
+	                 --error-exitcode=123                       \
+	                 --log-file=valgrind-\%p.$*                 \
+	                 $(VGDB)                                    \
 	                 --trace-children=yes
 else
 	ifdef USE_GDB
 		TOOL = gdb --args
 	endif
 endif
+
+default: nongui
 
 nongui: nolog $(FIXFF) newtests report
 
@@ -112,6 +114,7 @@ CLEAN_FILES := *.out \
   *.rej             \
   *.orig            \
   *.tlog            \
+  opt_test.vim      \
   test_result.log   \
   $(CLEANUP_FILES)  \
   $(RM_ON_RUN)      \
@@ -121,7 +124,8 @@ CLEAN_FILES := *.out \
   .*.swo            \
   .gdbinit          \
   $(TMPDIR)         \
-  del
+  del               \
+  $(ROOT)/runtime/doc/.*.swp
 clean:
 	$(RM) -rf $(CLEAN_FILES)
 
@@ -149,6 +153,18 @@ newtests: newtestssilent
 	             fi"
 
 newtestssilent: $(NEW_TESTS_RES)
+
+GEN_OPT_DEPS = gen_opt_test.vim ../../../src/nvim/options.lua ../../../runtime/doc/options.txt
+
+opt_test.vim: $(GEN_OPT_DEPS)
+	$(NVIM_PRG) -e -s -u NONE $(NO_INITS) -S $(GEN_OPT_DEPS)
+	@if test -f test.log; then \
+		cat test.log; \
+		exit 1; \
+	fi
+
+# Explicit dependencies.
+test_options_all.res: opt_test.vim
 
 %.res: %.vim .gdbinit
 	@echo "[OLDTEST] Running" $*

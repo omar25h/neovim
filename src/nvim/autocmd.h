@@ -6,21 +6,14 @@
 
 #include "klib/kvec.h"
 #include "nvim/api/private/defs.h"  // IWYU pragma: keep
-#include "nvim/autocmd_defs.h"  // IWYU pragma: export
+#include "nvim/autocmd_defs.h"  // IWYU pragma: keep
 #include "nvim/buffer_defs.h"
 #include "nvim/cmdexpand_defs.h"  // IWYU pragma: keep
 #include "nvim/eval/typval_defs.h"  // IWYU pragma: keep
 #include "nvim/ex_cmds_defs.h"  // IWYU pragma: keep
 #include "nvim/macros_defs.h"
 #include "nvim/pos_defs.h"
-
-// Set by the apply_autocmds_group function if the given event is equal to
-// EVENT_FILETYPE. Used by the readfile function in order to determine if
-// EVENT_BUFREADPOST triggered the EVENT_FILETYPE.
-//
-// Relying on this value requires one to reset it prior calling
-// apply_autocmds_group.
-EXTERN bool au_did_filetype INIT( = false);
+#include "nvim/types_defs.h"
 
 /// For CursorMoved event
 EXTERN win_T *last_cursormoved_win INIT( = NULL);
@@ -28,11 +21,8 @@ EXTERN win_T *last_cursormoved_win INIT( = NULL);
 EXTERN pos_T last_cursormoved INIT( = { 0, 0, 0 });
 
 EXTERN bool autocmd_busy INIT( = false);     ///< Is apply_autocmds() busy?
-EXTERN int autocmd_no_enter INIT( = false);  ///< *Enter autocmds disabled
-EXTERN int autocmd_no_leave INIT( = false);  ///< *Leave autocmds disabled
-EXTERN bool did_filetype INIT( = false);     ///< FileType event found
-/// value for did_filetype when starting to execute autocommands
-EXTERN bool keep_filetype INIT( = false);
+EXTERN int autocmd_no_enter INIT( = false);  ///< Buf/WinEnter autocmds disabled
+EXTERN int autocmd_no_leave INIT( = false);  ///< Buf/WinLeave autocmds disabled
 
 /// When deleting the current buffer, another one must be loaded.
 /// If we know which one is preferred, au_new_curbuf is set to it.
@@ -76,7 +66,7 @@ enum { BUFLOCAL_PAT_LEN = 25, };
 
 /// Iterates over all the events for auto commands
 #define FOR_ALL_AUEVENTS(event) \
-  for (event_T event = (event_T)0; (int)event < (int)NUM_EVENTS; event = (event_T)((int)event + 1))  // NOLINT
+  for (event_T event = (event_T)0; (int)event < (int)NUM_EVENTS; event = (event_T)((int)event + 1))
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "autocmd.h.generated.h"

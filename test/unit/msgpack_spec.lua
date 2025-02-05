@@ -1,10 +1,10 @@
-local helpers = require('test.unit.helpers')(after_each)
-local cimport = helpers.cimport
-local itp = helpers.gen_itp(it)
+local t = require('test.unit.testutil')
+local cimport = t.cimport
+local itp = t.gen_itp(it)
 local lib = cimport('./src/nvim/msgpack_rpc/unpacker.h', './src/nvim/memory.h')
-local ffi = helpers.ffi
-local eq = helpers.eq
-local to_cstr = helpers.to_cstr
+local ffi = t.ffi
+local eq = t.eq
+local to_cstr = t.to_cstr
 
 --- @class Unpacker
 --- @field read_ptr ffi.cdata*
@@ -51,11 +51,11 @@ describe('msgpack', function()
 
         unpacker_goto(unpacker, payload, payload:len() - 1)
         local finished = unpacker_advance(unpacker)
-        eq(finished, false)
+        eq(false, finished)
 
         unpacker[0].read_size = unpacker[0].read_size + 1
         finished = unpacker_advance(unpacker)
-        eq(finished, true)
+        eq(true, finished)
       end
     )
 
@@ -73,7 +73,7 @@ describe('msgpack', function()
         '\x93\x02\xa6\x72\x65\x64\x72\x61\x77\x91\x92\xa9\x67\x72\x69\x64\x5f\x6c\x69\x6e\x65\x95\x02\x00\x00\x90\xc2'
       )
       local finished = unpacker_advance(unpacker)
-      eq(finished, true)
+      eq(true, finished)
     end)
   end)
 end)

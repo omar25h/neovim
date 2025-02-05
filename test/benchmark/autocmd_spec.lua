@@ -1,7 +1,7 @@
-local helpers = require('test.functional.helpers')(after_each)
+local n = require('test.functional.testnvim')()
 
-local clear = helpers.clear
-local exec_lua = helpers.exec_lua
+local clear = n.clear
+local exec_lua = n.exec_lua
 
 local N = 7500
 

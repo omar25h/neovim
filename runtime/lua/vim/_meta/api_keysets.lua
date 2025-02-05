@@ -4,11 +4,11 @@
 error('Cannot require a meta file')
 
 --- @class vim.api.keyset.buf_attach
---- @field on_lines? function
---- @field on_bytes? function
---- @field on_changedtick? function
---- @field on_detach? function
---- @field on_reload? function
+--- @field on_lines? fun(_: "lines", bufnr: integer, changedtick: integer, first: integer, last_old: integer, last_new: integer, byte_count: integer, deleted_codepoints?: integer, deleted_codeunits?: integer): boolean?
+--- @field on_bytes? fun(_: "bytes", bufnr: integer, changedtick: integer, start_row: integer, start_col: integer, start_byte: integer, old_end_row: integer, old_end_col: integer, old_end_byte: integer, new_end_row: integer, new_end_col: integer, new_end_byte: integer): boolean?
+--- @field on_changedtick? fun(_: "changedtick", bufnr: integer, changedtick: integer)
+--- @field on_detach? fun(_: "detach", bufnr: integer)
+--- @field on_reload? fun(_: "reload", bufnr: integer)
 --- @field utf_sizes? boolean
 --- @field preview? boolean
 
@@ -18,9 +18,9 @@ error('Cannot require a meta file')
 
 --- @class vim.api.keyset.clear_autocmds
 --- @field buffer? integer
---- @field event? any
---- @field group? any
---- @field pattern? any
+--- @field event? string|string[]
+--- @field group? integer|string
+--- @field pattern? string|string[]
 
 --- @class vim.api.keyset.cmd
 --- @field cmd? string
@@ -28,12 +28,12 @@ error('Cannot require a meta file')
 --- @field count? integer
 --- @field reg? string
 --- @field bang? boolean
---- @field args? any[]
+--- @field args? string[]
 --- @field magic? table<string,any>
 --- @field mods? table<string,any>
---- @field nargs? any
---- @field addr? any
---- @field nextcmd? any
+--- @field nargs? integer|string
+--- @field addr? string
+--- @field nextcmd? string
 
 --- @class vim.api.keyset.cmd_magic
 --- @field file? boolean
@@ -68,23 +68,27 @@ error('Cannot require a meta file')
 --- @class vim.api.keyset.cmd_opts
 --- @field output? boolean
 
+--- @class vim.api.keyset.complete_set
+--- @field info? string
+
 --- @class vim.api.keyset.context
---- @field types? any[]
+--- @field types? string[]
 
 --- @class vim.api.keyset.create_augroup
---- @field clear? any
+--- @field clear? boolean
 
 --- @class vim.api.keyset.create_autocmd
 --- @field buffer? integer
---- @field callback? any
+--- @field callback? string|(fun(args: vim.api.keyset.create_autocmd.callback_args): boolean?)
 --- @field command? string
 --- @field desc? string
---- @field group? any
+--- @field group? integer|string
 --- @field nested? boolean
 --- @field once? boolean
---- @field pattern? any
+--- @field pattern? string|string[]
 
 --- @class vim.api.keyset.echo_opts
+--- @field err? boolean
 --- @field verbose? boolean
 
 --- @class vim.api.keyset.empty
@@ -100,41 +104,20 @@ error('Cannot require a meta file')
 
 --- @class vim.api.keyset.exec_autocmds
 --- @field buffer? integer
---- @field group? any
+--- @field group? integer|string
 --- @field modeline? boolean
---- @field pattern? any
+--- @field pattern? string|string[]
 --- @field data? any
 
 --- @class vim.api.keyset.exec_opts
 --- @field output? boolean
 
---- @class vim.api.keyset.float_config
---- @field row? number
---- @field col? number
---- @field width? integer
---- @field height? integer
---- @field anchor? string
---- @field relative? string
---- @field win? integer
---- @field bufpos? any[]
---- @field external? boolean
---- @field focusable? boolean
---- @field zindex? integer
---- @field border? any
---- @field title? any
---- @field title_pos? string
---- @field footer? any
---- @field footer_pos? string
---- @field style? string
---- @field noautocmd? boolean
---- @field fixed? boolean
---- @field hide? boolean
-
 --- @class vim.api.keyset.get_autocmds
---- @field event? any
---- @field group? any
---- @field pattern? any
---- @field buffer? any
+--- @field event? string|string[]
+--- @field group? integer|string
+--- @field pattern? string|string[]
+--- @field buffer? integer|integer[]
+--- @field id? integer
 
 --- @class vim.api.keyset.get_commands
 --- @field builtin? boolean
@@ -173,22 +156,23 @@ error('Cannot require a meta file')
 --- @field altfont? boolean
 --- @field nocombine? boolean
 --- @field default? boolean
---- @field cterm? any
---- @field foreground? any
---- @field fg? any
---- @field background? any
---- @field bg? any
---- @field ctermfg? any
---- @field ctermbg? any
---- @field special? any
---- @field sp? any
---- @field link? any
---- @field global_link? any
+--- @field cterm? integer|string
+--- @field foreground? integer|string
+--- @field fg? integer|string
+--- @field background? integer|string
+--- @field bg? integer|string
+--- @field ctermfg? integer|string
+--- @field ctermbg? integer|string
+--- @field special? integer|string
+--- @field sp? integer|string
+--- @field link? integer|string
+--- @field global_link? integer|string
 --- @field fallback? boolean
 --- @field blend? integer
 --- @field fg_indexed? boolean
 --- @field bg_indexed? boolean
 --- @field force? boolean
+--- @field url? string
 
 --- @class vim.api.keyset.highlight_cterm
 --- @field bold? boolean
@@ -215,8 +199,12 @@ error('Cannot require a meta file')
 --- @field desc? string
 --- @field replace_keycodes? boolean
 
+--- @class vim.api.keyset.ns_opts
+--- @field wins? any[]
+
 --- @class vim.api.keyset.open_term
---- @field on_input? function
+--- @field on_input? fun(_: "input", term: integer, bufnr: integer, data: any)
+--- @field force_crlf? boolean
 
 --- @class vim.api.keyset.option
 --- @field scope? string
@@ -224,18 +212,30 @@ error('Cannot require a meta file')
 --- @field buf? integer
 --- @field filetype? string
 
+--- @class vim.api.keyset.redraw
+--- @field flush? boolean
+--- @field cursor? boolean
+--- @field valid? boolean
+--- @field statuscolumn? boolean
+--- @field statusline? boolean
+--- @field tabline? boolean
+--- @field winbar? boolean
+--- @field range? any[]
+--- @field win? integer
+--- @field buf? integer
+
 --- @class vim.api.keyset.runtime
 --- @field is_lua? boolean
 --- @field do_source? boolean
 
 --- @class vim.api.keyset.set_decoration_provider
---- @field on_start? function
---- @field on_buf? function
---- @field on_win? function
---- @field on_line? function
---- @field on_end? function
---- @field _on_hl_def? function
---- @field _on_spell_nav? function
+--- @field on_start? fun(_: "start", tick: integer): boolean?
+--- @field on_buf? fun(_: "buf", bufnr: integer, tick: integer)
+--- @field on_win? fun(_: "win", winid: integer, bufnr: integer, toprow: integer, botrow: integer): boolean?
+--- @field on_line? fun(_: "line", winid: integer, bufnr: integer, row: integer): boolean?
+--- @field on_end? fun(_: "end", tick: integer)
+--- @field _on_hl_def? fun(_: "hl_def")
+--- @field _on_spell_nav? fun(_: "spell_nav")
 
 --- @class vim.api.keyset.set_extmark
 --- @field id? integer
@@ -247,6 +247,7 @@ error('Cannot require a meta file')
 --- @field virt_text_pos? string
 --- @field virt_text_win_col? integer
 --- @field virt_text_hide? boolean
+--- @field virt_text_repeat_linebreak? boolean
 --- @field hl_eol? boolean
 --- @field hl_mode? string
 --- @field invalidate? boolean
@@ -259,14 +260,16 @@ error('Cannot require a meta file')
 --- @field virt_lines_leftcol? boolean
 --- @field strict? boolean
 --- @field sign_text? string
---- @field sign_hl_group? any
---- @field number_hl_group? any
---- @field line_hl_group? any
---- @field cursorline_hl_group? any
+--- @field sign_hl_group? integer|string
+--- @field number_hl_group? integer|string
+--- @field line_hl_group? integer|string
+--- @field cursorline_hl_group? integer|string
 --- @field conceal? string
 --- @field spell? boolean
 --- @field ui_watched? boolean
 --- @field undo_restore? boolean
+--- @field url? string
+--- @field scoped? boolean
 
 --- @class vim.api.keyset.user_command
 --- @field addr? any
@@ -282,8 +285,47 @@ error('Cannot require a meta file')
 --- @field range? any
 --- @field register? boolean
 
+--- @class vim.api.keyset.win_config
+--- @field row? number
+--- @field col? number
+--- @field width? integer
+--- @field height? integer
+--- @field anchor? string
+--- @field relative? string
+--- @field split? string
+--- @field win? integer
+--- @field bufpos? integer[]
+--- @field external? boolean
+--- @field focusable? boolean
+--- @field mouse? boolean
+--- @field vertical? boolean
+--- @field zindex? integer
+--- @field border? any
+--- @field title? any
+--- @field title_pos? string
+--- @field footer? any
+--- @field footer_pos? string
+--- @field style? string
+--- @field noautocmd? boolean
+--- @field fixed? boolean
+--- @field hide? boolean
+
 --- @class vim.api.keyset.win_text_height
 --- @field start_row? integer
 --- @field end_row? integer
 --- @field start_vcol? integer
 --- @field end_vcol? integer
+
+--- @class vim.api.keyset.xdl_diff
+--- @field on_hunk? fun(start_a: integer, count_a: integer, start_b: integer, count_b: integer): integer?
+--- @field result_type? string
+--- @field algorithm? string
+--- @field ctxlen? integer
+--- @field interhunkctxlen? integer
+--- @field linematch? boolean|integer
+--- @field ignore_whitespace? boolean
+--- @field ignore_whitespace_change? boolean
+--- @field ignore_whitespace_change_at_eol? boolean
+--- @field ignore_cr_at_eol? boolean
+--- @field ignore_blank_lines? boolean
+--- @field indent_heuristic? boolean

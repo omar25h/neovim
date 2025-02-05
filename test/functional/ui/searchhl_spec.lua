@@ -1,12 +1,14 @@
-local helpers = require('test.functional.helpers')(after_each)
+local t = require('test.testutil')
+local n = require('test.functional.testnvim')()
 local Screen = require('test.functional.ui.screen')
-local clear, feed, insert = helpers.clear, helpers.feed, helpers.insert
-local command = helpers.command
-local feed_command = helpers.feed_command
-local eq = helpers.eq
-local eval = helpers.eval
-local funcs = helpers.funcs
-local testprg = helpers.testprg
+
+local clear, feed, insert = n.clear, n.feed, n.insert
+local command = n.command
+local feed_command = n.feed_command
+local eq = t.eq
+local eval = n.eval
+local fn = n.fn
+local testprg = n.testprg
 
 describe('search highlighting', function()
   local screen
@@ -14,21 +16,20 @@ describe('search highlighting', function()
   before_each(function()
     clear()
     screen = Screen.new(40, 7)
-    screen:attach()
-    screen:set_default_attr_ids( {
-      [1] = {bold=true, foreground=Screen.colors.Blue},
-      [2] = {background = Screen.colors.Yellow}, -- Search
-      [3] = {reverse = true},
-      [4] = {foreground = Screen.colors.Red}, -- WarningMsg
-      [5] = {bold = true, reverse = true}, -- StatusLine
-      [6] = {foreground = Screen.colors.Blue4, background = Screen.colors.LightGrey}, -- Folded
+    screen:set_default_attr_ids({
+      [1] = { bold = true, foreground = Screen.colors.Blue },
+      [2] = { background = Screen.colors.Yellow }, -- Search
+      [3] = { reverse = true },
+      [4] = { foreground = Screen.colors.Red }, -- WarningMsg
+      [5] = { bold = true, reverse = true }, -- StatusLine
+      [6] = { foreground = Screen.colors.Blue4, background = Screen.colors.LightGrey }, -- Folded
     })
   end)
 
   it('is disabled by ":set nohlsearch"', function()
     feed_command('set nohlsearch')
-    insert("some text\nmore text")
-    feed("gg/text<cr>")
+    insert('some text\nmore text')
+    feed('gg/text<cr>')
     screen:expect([[
       some ^text                               |
       more text                               |
@@ -38,16 +39,27 @@ describe('search highlighting', function()
   end)
 
   it('is disabled in folded text', function()
-    insert("some text\nmore text")
+    insert('some text\nmore text')
     feed_command('1,2fold')
-    feed("gg/text")
-    screen:expect{grid=[[
+    feed('gg/text')
+    screen:expect {
+      grid = [[
       {6:+--  2 lines: some text·················}|
       {1:~                                       }|*5
       /text^                                   |
-    ]], win_viewport={
-      [2] = {win = {id = 1000}, topline = 0, botline = 3, curline = 0, curcol = 8, linecount = 2, sum_scroll_delta = 0};
-    }}
+    ]],
+      win_viewport = {
+        [2] = {
+          win = 1000,
+          topline = 0,
+          botline = 3,
+          curline = 0,
+          curcol = 9,
+          linecount = 2,
+          sum_scroll_delta = 0,
+        },
+      },
+    }
   end)
 
   local function test_search_hl()
@@ -59,7 +71,7 @@ describe('search highlighting', function()
     ]])
 
     -- 'hlsearch' is enabled by default. #2859
-    feed("gg/text<cr>")
+    feed('gg/text<cr>')
     screen:expect([[
         some {2:^text}                             |
         more {2:text}stuff                        |
@@ -71,7 +83,7 @@ describe('search highlighting', function()
     ]])
 
     -- overlapping matches not allowed
-    feed("3nx")
+    feed('3nx')
     screen:expect([[
         some {2:text}                             |
         more {2:text}stuff                        |
@@ -82,7 +94,7 @@ describe('search highlighting', function()
       /text                                   |
     ]])
 
-    feed("ggn*") -- search for entire word
+    feed('ggn*') -- search for entire word
     screen:expect([[
         some {2:text}                             |
         more textstuff                        |
@@ -93,7 +105,7 @@ describe('search highlighting', function()
       /\<text\>                               |
     ]])
 
-    feed_command("nohlsearch")
+    feed_command('nohlsearch')
     screen:expect([[
         some text                             |
         more textstuff                        |
@@ -112,7 +124,7 @@ describe('search highlighting', function()
   it("works when 'winhighlight' doesn't change Search highlight", function()
     command('setlocal winhl=NonText:Underlined')
     local attrs = screen:get_default_attr_ids()
-    attrs[1] = {foreground = Screen.colors.SlateBlue, underline = true}
+    attrs[1] = { foreground = Screen.colors.SlateBlue, underline = true }
     screen:set_default_attr_ids(attrs)
     test_search_hl()
   end)
@@ -120,7 +132,7 @@ describe('search highlighting', function()
   it("works when 'winhighlight' changes Search highlight", function()
     command('setlocal winhl=Search:Underlined')
     local attrs = screen:get_default_attr_ids()
-    attrs[2] = {foreground = Screen.colors.SlateBlue, underline = true}
+    attrs[2] = { foreground = Screen.colors.SlateBlue, underline = true }
     screen:set_default_attr_ids(attrs)
     test_search_hl()
   end)
@@ -128,9 +140,9 @@ describe('search highlighting', function()
   describe('CurSearch highlight', function()
     before_each(function()
       screen:set_default_attr_ids({
-        [1] = {background = Screen.colors.Yellow},  -- Search
-        [2] = {foreground = Screen.colors.White, background = Screen.colors.Black},  -- CurSearch
-        [3] = {foreground = Screen.colors.Red},  -- WarningMsg
+        [1] = { background = Screen.colors.Yellow }, -- Search
+        [2] = { foreground = Screen.colors.White, background = Screen.colors.Black }, -- CurSearch
+        [3] = { foreground = Screen.colors.Red }, -- WarningMsg
       })
       command('highlight CurSearch guibg=Black guifg=White')
     end)
@@ -145,7 +157,8 @@ describe('search highlighting', function()
         humans think is impossible.]])
 
       feed('/bee<CR>')
-      screen:expect{grid=[[
+      screen:expect {
+        grid = [[
         There is no way that a {2:^bee} should be    |
         able to fly. Its wings are too small    |
         to get its fat little body off the      |
@@ -153,10 +166,12 @@ describe('search highlighting', function()
         anyway because {1:bee}s don't care what     |
         humans think is impossible.             |
         {3:search hit BOTTOM, continuing at TOP}    |
-      ]]}
+      ]],
+      }
 
       feed('nn')
-      screen:expect{grid=[[
+      screen:expect {
+        grid = [[
         There is no way that a {1:bee} should be    |
         able to fly. Its wings are too small    |
         to get its fat little body off the      |
@@ -164,10 +179,12 @@ describe('search highlighting', function()
         anyway because {2:^bee}s don't care what     |
         humans think is impossible.             |
         /bee                                    |
-      ]]}
+      ]],
+      }
 
       feed('N')
-      screen:expect{grid=[[
+      screen:expect {
+        grid = [[
         There is no way that a {1:bee} should be    |
         able to fly. Its wings are too small    |
         to get its fat little body off the      |
@@ -175,10 +192,12 @@ describe('search highlighting', function()
         anyway because {1:bee}s don't care what     |
         humans think is impossible.             |
         ?bee                                    |
-      ]]}
+      ]],
+      }
     end)
 
-    it('works for multiline match', function()
+    -- oldtest: Test_hlsearch_cursearch()
+    it('works for multiline match, no duplicate highlight', function()
       command([[call setline(1, ['one', 'foo', 'bar', 'baz', 'foo the foo and foo', 'bar'])]])
       feed('gg/foo<CR>')
       screen:expect([[
@@ -262,13 +281,35 @@ describe('search highlighting', function()
         {2:hij}kl                                   |
         /efg\nhij                               |
       ]])
+
+      -- check clearing CurSearch when using it for another match
+      feed('G?^abcd<CR>Y')
+      screen:expect([[
+        ---                                     |
+        {1:abcd}efg                                 |
+        hijkl                                   |
+        ---                                     |
+        {2:^abcd}efg                                 |
+        hijkl                                   |
+        ?^abcd                                  |
+      ]])
+      feed('kkP')
+      screen:expect([[
+        ---                                     |
+        {1:abcd}efg                                 |
+        {2:^abcd}efg                                 |
+        hijkl                                   |
+        ---                                     |
+        {1:abcd}efg                                 |
+        ?^abcd                                  |
+      ]])
     end)
   end)
 
   it('highlights after EOL', function()
-    insert("\n\n\n\n\n\n")
+    insert('\n\n\n\n\n\n')
 
-    feed("gg/^<cr>")
+    feed('gg/^<cr>')
     screen:expect([[
       {2: }                                       |
       {2:^ }                                       |
@@ -277,7 +318,7 @@ describe('search highlighting', function()
     ]])
 
     -- Test that highlights are preserved after moving the cursor.
-    feed("j")
+    feed('j')
     screen:expect([[
       {2: }                                       |*2
       {2:^ }                                       |
@@ -286,9 +327,9 @@ describe('search highlighting', function()
     ]])
 
     -- Repeat the test in rightleft mode.
-    command("nohlsearch")
-    command("set rightleft")
-    feed("gg/^<cr>")
+    command('nohlsearch')
+    command('set rightleft')
+    feed('gg/^<cr>')
 
     screen:expect([[
                                              {2: }|
@@ -297,7 +338,7 @@ describe('search highlighting', function()
       ^/                                      |
     ]])
 
-    feed("j")
+    feed('j')
     screen:expect([[
                                              {2: }|*2
                                              {2:^ }|
@@ -319,19 +360,26 @@ describe('search highlighting', function()
       :file term                              |
     ]])
 
-    feed('G')  -- Follow :terminal output.
+    feed('G') -- Follow :terminal output.
     feed(':vnew<CR>')
     insert([[
       foo bar baz
       bar baz foo
       bar foo baz]])
     feed('/foo')
+    screen:set_default_attr_ids({
+      [1] = { bold = true, foreground = Screen.colors.Blue },
+      [2] = { background = Screen.colors.Yellow }, -- Search
+      [3] = { reverse = true },
+      [4] = { bold = true, reverse = true },
+      [5] = { foreground = Screen.colors.White, background = Screen.colors.DarkGreen },
+    })
     screen:expect([[
       {3:foo} bar baz         │{MATCH:%d+}: {2:foo}{MATCH:%s+}|
       bar baz {2:foo}         │{MATCH:%d+}: {2:foo}{MATCH:%s+}|
       bar {2:foo} baz         │{MATCH:%d+}: {2:foo}{MATCH:%s+}|
       {1:~                   }│{MATCH:.*}|*2
-      {5:[No Name] [+]        }{3:term               }|
+      {4:[No Name] [+]        }{5:term               }|
       /foo^                                    |
     ]])
   end)
@@ -344,7 +392,7 @@ describe('search highlighting', function()
       the first line
       in a little file]])
     command('vsplit')
-    feed("gg/li")
+    feed('gg/li')
     screen:expect([[
       the first {3:li}ne      │the first {2:li}ne     |
       in a {2:li}ttle file    │in a {2:li}ttle file   |
@@ -353,7 +401,7 @@ describe('search highlighting', function()
     ]])
 
     -- check that consecutive matches are caught by C-g/C-t
-    feed("<C-g>")
+    feed('<C-g>')
     screen:expect([[
       the first {2:li}ne      │the first {2:li}ne     |
       in a {3:li}ttle file    │in a {2:li}ttle file   |
@@ -361,7 +409,7 @@ describe('search highlighting', function()
       /li^                                     |
     ]])
 
-    feed("<C-t>")
+    feed('<C-t>')
     screen:expect([[
       the first {3:li}ne      │the first {2:li}ne     |
       in a {2:li}ttle file    │in a {2:li}ttle file   |
@@ -369,7 +417,7 @@ describe('search highlighting', function()
       /li^                                     |
     ]])
 
-    feed("t")
+    feed('t')
     screen:expect([[
       the first line      │the first line     |
       in a {3:lit}tle file    │in a {2:lit}tle file   |
@@ -377,7 +425,7 @@ describe('search highlighting', function()
       /lit^                                    |
     ]])
 
-    feed("<cr>")
+    feed('<cr>')
     screen:expect([[
       the first line      │the first line     |
       in a {2:^lit}tle file    │in a {2:lit}tle file   |
@@ -385,7 +433,7 @@ describe('search highlighting', function()
       /lit                                    |
     ]])
 
-    feed("/fir")
+    feed('/fir')
     screen:expect([[
       the {3:fir}st line      │the {2:fir}st line     |
       in a little file    │in a little file   |
@@ -394,7 +442,7 @@ describe('search highlighting', function()
     ]])
 
     -- incsearch have priority over hlsearch
-    feed("<esc>/ttle")
+    feed('<esc>/ttle')
     screen:expect([[
       the first line      │the first line     |
       in a li{3:ttle} file    │in a li{2:ttle} file   |
@@ -441,13 +489,13 @@ describe('search highlighting', function()
     command([[let @/ = 'i']])
     -- moves to next match of previous search pattern, just like /<cr>
     feed('/<c-g><cr>')
-    eq({0, 1, 6, 0}, funcs.getpos('.'))
+    eq({ 0, 1, 6, 0 }, fn.getpos('.'))
     -- moves to next match of previous search pattern, just like /<cr>
     feed('/<cr>')
-    eq({0, 1, 12, 0}, funcs.getpos('.'))
+    eq({ 0, 1, 12, 0 }, fn.getpos('.'))
     -- moves to next match of previous search pattern, just like /<cr>
     feed('/<c-t><cr>')
-    eq({0, 2, 1, 0}, funcs.getpos('.'))
+    eq({ 0, 2, 1, 0 }, fn.getpos('.'))
 
     -- 8.0.1304, test that C-g and C-t works with incsearch and empty pattern
     feed('<esc>/fi<CR>')
@@ -515,7 +563,7 @@ describe('search highlighting', function()
       not the match you're looking for
       the match is here]])
 
-    feed("gg/mat/e")
+    feed('gg/mat/e')
     screen:expect([[
       not the {3:mat}ch you're looking for        |
       the {2:mat}ch is here                       |
@@ -524,7 +572,7 @@ describe('search highlighting', function()
     ]])
 
     -- Search with count and /e offset fixed in Vim patch 7.4.532.
-    feed("<esc>2/mat/e")
+    feed('<esc>2/mat/e')
     screen:expect([[
       not the {2:mat}ch you're looking for        |
       the {3:mat}ch is here                       |
@@ -532,7 +580,7 @@ describe('search highlighting', function()
       /mat/e^                                  |
     ]])
 
-    feed("<cr>")
+    feed('<cr>')
     screen:expect([[
       not the {2:mat}ch you're looking for        |
       the {2:ma^t}ch is here                       |
@@ -569,45 +617,58 @@ describe('search highlighting', function()
 
   it('works with matchadd and syntax', function()
     screen:set_default_attr_ids {
-      [1] = {bold=true, foreground=Screen.colors.Blue};
-      [2] = {background = Screen.colors.Yellow};
-      [3] = {reverse = true};
-      [4] = {foreground = Screen.colors.Red};
-      [5] = {bold = true, background = Screen.colors.Green};
-      [6] = {italic = true, background = Screen.colors.Magenta};
-      [7] = {bold = true, background = Screen.colors.Yellow};
-      [8] = {foreground = Screen.colors.Blue4, background = Screen.colors.LightGray};
+      [1] = { bold = true, foreground = Screen.colors.Blue },
+      [2] = { background = Screen.colors.Yellow },
+      [3] = { reverse = true },
+      [4] = { foreground = Screen.colors.Red },
+      [5] = { bold = true, background = Screen.colors.Green },
+      [6] = { italic = true, background = Screen.colors.Magenta },
+      [7] = { bold = true, background = Screen.colors.Yellow },
+      [8] = { foreground = Screen.colors.Blue4, background = Screen.colors.LightGray },
     }
     feed_command('set hlsearch')
     insert [[
       very special text
     ]]
-    feed_command("syntax on")
-    feed_command("highlight MyGroup guibg=Green gui=bold")
-    feed_command("highlight MyGroup2 guibg=Magenta gui=italic")
+    feed_command('syntax on')
+    feed_command('highlight MyGroup guibg=Green gui=bold')
+    feed_command('highlight MyGroup2 guibg=Magenta gui=italic')
     feed_command("call matchadd('MyGroup', 'special')")
     feed_command("call matchadd('MyGroup2', 'text', 0)")
 
     -- searchhl and matchadd matches are exclusive, only the highest priority
     -- is used (and matches with lower priorities are not combined)
-    feed_command("/ial te")
-    screen:expect{grid=[[
+    feed_command('/ial te')
+    screen:expect {
+      grid = [[
         very {5:spec^ial}{2: te}{6:xt}                     |
                                               |
       {1:~                                       }|*4
       {4:search hit BOTTOM, continuing at TOP}    |
-    ]], win_viewport={
-      [2] = {win = {id = 1000}, topline = 0, botline = 3, curline = 0, curcol = 11, linecount = 2, sum_scroll_delta = 0};
-    }}
+    ]],
+      win_viewport = {
+        [2] = {
+          win = 1000,
+          topline = 0,
+          botline = 3,
+          curline = 0,
+          curcol = 11,
+          linecount = 2,
+          sum_scroll_delta = 0,
+        },
+      },
+    }
 
     -- check highlights work also in folds
-    feed("zf4j")
-    screen:expect{grid=[[
+    feed('zf4j')
+    screen:expect {
+      grid = [[
       {8:^+--  2 lines: very special text·········}|
       {1:~                                       }|*5
       {4:search hit BOTTOM, continuing at TOP}    |
-    ]]}
-    command("%foldopen")
+    ]],
+    }
+    command('%foldopen')
     screen:expect([[
         very {5:spec^ial}{2: te}{6:xt}                     |
                                               |
@@ -615,7 +676,7 @@ describe('search highlighting', function()
       {4:search hit BOTTOM, continuing at TOP}    |
     ]])
 
-    feed_command("call clearmatches()")
+    feed_command('call clearmatches()')
     screen:expect([[
         very spec{2:^ial te}xt                     |
                                               |
@@ -625,7 +686,7 @@ describe('search highlighting', function()
 
     -- searchhl has priority over syntax, but in this case
     -- nonconflicting attributes are combined
-    feed_command("syntax keyword MyGroup special")
+    feed_command('syntax keyword MyGroup special')
     screen:expect([[
         very {5:spec}{7:^ial}{2: te}xt                     |
                                               |
@@ -644,5 +705,18 @@ describe('search highlighting', function()
       :%g@a/b^                                 |
     ]])
   end)
-end)
 
+  it('incsearch is still visible after :redraw from K_EVENT', function()
+    fn.setline(1, { 'foo', 'bar' })
+    feed('/foo<CR>/bar')
+    screen:expect([[
+      foo                                     |
+      {3:bar}                                     |
+      {1:~                                       }|*4
+      /bar^                                    |
+    ]])
+    command('redraw!')
+    -- There is an intermediate state where :redraw! removes 'incsearch' highlight.
+    screen:expect_unchanged(true)
+  end)
+end)

@@ -1,8 +1,10 @@
-local helpers = require('test.functional.helpers')(after_each)
-local clear = helpers.clear
-local command = helpers.command
-local eq = helpers.eq
-local eval = helpers.eval
+local t = require('test.testutil')
+local n = require('test.functional.testnvim')()
+
+local clear = n.clear
+local command = n.command
+local eq = t.eq
+local eval = n.eval
 
 -- oldtest: Test_missing_attr()
 describe('synIDattr()', function()
@@ -37,12 +39,12 @@ describe('synIDattr()', function()
       end)
     end
 
-    for _, mode in ipairs({'cterm', 'gui'}) do
+    for _, mode in ipairs({ 'cterm', 'gui' }) do
       describe(('"%s"'):format(mode), function()
         for _, attr in ipairs(bool_attrs) do
           none_test(attr, mode)
         end
-        for _, attr in ipairs({'inverse', 'bg', 'fg', 'sp'}) do
+        for _, attr in ipairs({ 'inverse', 'bg', 'fg', 'sp' }) do
           none_test(attr, mode)
         end
       end)

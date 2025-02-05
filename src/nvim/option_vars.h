@@ -1,71 +1,27 @@
 #pragma once
 
 #include "nvim/macros_defs.h"
+#include "nvim/os/os_defs.h"
+#include "nvim/sign_defs.h"
+#include "nvim/statusline_defs.h"
 #include "nvim/types_defs.h"
+
+#ifdef INCLUDE_GENERATED_DECLARATIONS
+# include "option_vars.generated.h"  // NOLINT(build/include_defs)
+#endif
 
 // option_vars.h: definition of global variables for settable options
 
-// Option Flags
-#define P_BOOL         0x01U        ///< the option is boolean
-#define P_NUM          0x02U        ///< the option is numeric
-#define P_STRING       0x04U        ///< the option is a string
-#define P_ALLOCED      0x08U        ///< the string option is in allocated memory,
-                                    ///< must use free_string_option() when
-                                    ///< assigning new value. Not set if default is
-                                    ///< the same.
-#define P_EXPAND       0x10U        ///< environment expansion.  NOTE: P_EXPAND can
-                                    ///< never be used for local or hidden options
-#define P_NO_DEF_EXP   0x20U        ///< do not expand default value
-#define P_NODEFAULT    0x40U        ///< don't set to default value
-#define P_DEF_ALLOCED  0x80U        ///< default value is in allocated memory, must
-                                    ///< use free() when assigning new value
-#define P_WAS_SET      0x100U       ///< option has been set/reset
-#define P_NO_MKRC      0x200U       ///< don't include in :mkvimrc output
-
-// when option changed, what to display:
-#define P_UI_OPTION    0x400U       ///< send option to remote UI
-#define P_RTABL        0x800U       ///< redraw tabline
-#define P_RSTAT        0x1000U      ///< redraw status lines
-#define P_RWIN         0x2000U      ///< redraw current window and recompute text
-#define P_RBUF         0x4000U      ///< redraw current buffer and recompute text
-#define P_RALL         0x6000U      ///< redraw all windows
-#define P_RCLR         0x7000U      ///< clear and redraw all
-
-#define P_COMMA        0x8000U      ///< comma separated list
-#define P_ONECOMMA     0x18000U     ///< P_COMMA and cannot have two consecutive
-                                    ///< commas
-#define P_NODUP        0x20000U     ///< don't allow duplicate strings
-#define P_FLAGLIST     0x40000U     ///< list of single-char flags
-
-#define P_SECURE       0x80000U     ///< cannot change in modeline or secure mode
-#define P_GETTEXT      0x100000U    ///< expand default value with _()
-#define P_NOGLOB       0x200000U    ///< do not use local value for global vimrc
-#define P_NFNAME       0x400000U    ///< only normal file name chars allowed
-#define P_INSECURE     0x800000U    ///< option was set from a modeline
-#define P_PRI_MKRC     0x1000000U   ///< priority for :mkvimrc (setting option
-                                    ///< has side effects)
-#define P_NO_ML        0x2000000U   ///< not allowed in modeline
-#define P_CURSWANT     0x4000000U   ///< update curswant required; not needed
-                                    ///< when there is a redraw flag
-#define P_NDNAME       0x8000000U   ///< only normal dir name chars allowed
-#define P_RWINONLY     0x10000000U  ///< only redraw current window
-#define P_MLE          0x20000000U  ///< under control of 'modelineexpr'
-#define P_FUNC         0x40000000U  ///< accept a function reference or a lambda
-#define P_COLON        0x80000000U  ///< values use colons to create sublists
-// Warning: Currently we have used all 32 bits for option flags, and adding more
-//          flags will overflow it. Adding another flag will need to change how
-//          it's stored first.
-
 #define HIGHLIGHT_INIT \
-  "8:SpecialKey,~:EndOfBuffer,z:TermCursor,Z:TermCursorNC,@:NonText,d:Directory,e:ErrorMsg," \
+  "8:SpecialKey,~:EndOfBuffer,z:TermCursor,@:NonText,d:Directory,e:ErrorMsg," \
   "i:IncSearch,l:Search,y:CurSearch,m:MoreMsg,M:ModeMsg,n:LineNr,a:LineNrAbove,b:LineNrBelow," \
-  "N:CursorLineNr,G:CursorLineSign,O:CursorLineFold" \
-  "r:Question,s:StatusLine,S:StatusLineNC,c:VertSplit,t:Title,v:Visual,V:VisualNOS,w:WarningMsg," \
-  "W:WildMenu,f:Folded,F:FoldColumn,A:DiffAdd,C:DiffChange,D:DiffDelete,T:DiffText,>:SignColumn," \
-  "-:Conceal,B:SpellBad,P:SpellCap,R:SpellRare,L:SpellLocal,+:Pmenu,=:PmenuSel," \
-  "[:PmenuKind,]:PmenuKindSel,{:PmenuExtra,}:PmenuExtraSel,x:PmenuSbar,X:PmenuThumb," \
-  "*:TabLine,#:TabLineSel,_:TabLineFill,!:CursorColumn,.:CursorLine,o:ColorColumn," \
-  "q:QuickFixLine,0:Whitespace,I:NormalNC"
+  "N:CursorLineNr,G:CursorLineSign,O:CursorLineFold,r:Question,s:StatusLine,S:StatusLineNC," \
+  "c:VertSplit,t:Title,v:Visual,V:VisualNOS,w:WarningMsg,W:WildMenu,f:Folded,F:FoldColumn," \
+  "A:DiffAdd,C:DiffChange,D:DiffDelete,T:DiffText,>:SignColumn,-:Conceal,B:SpellBad,P:SpellCap," \
+  "R:SpellRare,L:SpellLocal,+:Pmenu,=:PmenuSel,k:PmenuMatch,<:PmenuMatchSel,[:PmenuKind," \
+  "]:PmenuKindSel,{:PmenuExtra,}:PmenuExtraSel,x:PmenuSbar,X:PmenuThumb,*:TabLine,#:TabLineSel," \
+  "_:TabLineFill,!:CursorColumn,.:CursorLine,o:ColorColumn,q:QuickFixLine,z:StatusLineTerm," \
+  "Z:StatusLineTermNC,g:MsgArea,h:ComplMatchIns,0:Whitespace,I:NormalNC"
 
 // Default values for 'errorformat'.
 // The "%f|%l| %m" one is used for when the contents of the quickfix window is
@@ -79,21 +35,6 @@
 #endif
 
 #define DFLT_GREPFORMAT "%f:%l:%m,%f:%l%m,%f  %l%m"
-
-// default values for b_p_ff 'fileformat' and p_ffs 'fileformats'
-#define FF_DOS          "dos"
-#define FF_MAC          "mac"
-#define FF_UNIX         "unix"
-
-#ifdef USE_CRNL
-# define DFLT_FF        "dos"
-# define DFLT_FFS_VIM   "dos,unix"
-# define DFLT_FFS_VI    "dos,unix"      // also autodetect in compatible mode
-#else
-# define DFLT_FF       "unix"
-# define DFLT_FFS_VIM  "unix,dos"
-# define DFLT_FFS_VI  ""
-#endif
 
 // Possible values for 'encoding'
 #define ENC_UCSBOM     "ucs-bom"       // check for BOM at start of file
@@ -133,6 +74,8 @@
 #define DFLT_FO_VIM     "tcqj"
 #define FO_ALL          "tcro/q2vlb1mMBn,aw]jp"   // for do_set()
 
+#define MAX_MCO  6  // fixed value for 'maxcombine'
+
 // characters for the p_cpo option:
 #define CPO_ALTREAD     'a'     // ":read" sets alternate file name
 #define CPO_ALTWRITE    'A'     // ":write" sets alternate file name
@@ -157,7 +100,6 @@
 #define CPO_NUMCOL      'n'     // 'number' column also used for text
 #define CPO_LINEOFF     'o'
 #define CPO_OVERNEW     'O'     // silently overwrite new file
-#define CPO_LISP        'p'     // 'lisp' indenting
 #define CPO_FNAMEAPP    'P'     // set file name for ":w >>file"
 #define CPO_JOINCOL     'q'     // with "3J" use column after first join
 #define CPO_REDO        'r'
@@ -223,7 +165,7 @@ enum {
   SHM_INTRO          = 'I',  ///< Intro messages.
   SHM_COMPLETIONMENU = 'c',  ///< Completion menu messages.
   SHM_COMPLETIONSCAN = 'C',  ///< Completion scanning messages.
-  SHM_RECORDING      = 'q',  ///< Short recording message.
+  SHM_RECORDING      = 'q',  ///< No recording message.
   SHM_FILEINFO       = 'F',  ///< No file info messages.
   SHM_SEARCHCOUNT    = 'S',  ///< No search stats: '[1/10]'
 };
@@ -271,49 +213,6 @@ enum {
 #define COM_ALL         "nbsmexflrO"    // all flags for 'comments' option
 #define COM_MAX_LEN     50              // maximum length of a part
 
-/// 'statusline' option flags
-enum {
-  STL_FILEPATH        = 'f',  ///< Path of file in buffer.
-  STL_FULLPATH        = 'F',  ///< Full path of file in buffer.
-  STL_FILENAME        = 't',  ///< Last part (tail) of file path.
-  STL_COLUMN          = 'c',  ///< Column og cursor.
-  STL_VIRTCOL         = 'v',  ///< Virtual column.
-  STL_VIRTCOL_ALT     = 'V',  ///< - with 'if different' display.
-  STL_LINE            = 'l',  ///< Line number of cursor.
-  STL_NUMLINES        = 'L',  ///< Number of lines in buffer.
-  STL_BUFNO           = 'n',  ///< Current buffer number.
-  STL_KEYMAP          = 'k',  ///< 'keymap' when active.
-  STL_OFFSET          = 'o',  ///< Offset of character under cursor.
-  STL_OFFSET_X        = 'O',  ///< - in hexadecimal.
-  STL_BYTEVAL         = 'b',  ///< Byte value of character.
-  STL_BYTEVAL_X       = 'B',  ///< - in hexadecimal.
-  STL_ROFLAG          = 'r',  ///< Readonly flag.
-  STL_ROFLAG_ALT      = 'R',  ///< - other display.
-  STL_HELPFLAG        = 'h',  ///< Window is showing a help file.
-  STL_HELPFLAG_ALT    = 'H',  ///< - other display.
-  STL_FILETYPE        = 'y',  ///< 'filetype'.
-  STL_FILETYPE_ALT    = 'Y',  ///< - other display.
-  STL_PREVIEWFLAG     = 'w',  ///< Window is showing the preview buf.
-  STL_PREVIEWFLAG_ALT = 'W',  ///< - other display.
-  STL_MODIFIED        = 'm',  ///< Modified flag.
-  STL_MODIFIED_ALT    = 'M',  ///< - other display.
-  STL_QUICKFIX        = 'q',  ///< Quickfix window description.
-  STL_PERCENTAGE      = 'p',  ///< Percentage through file.
-  STL_ALTPERCENT      = 'P',  ///< Percentage as TOP BOT ALL or NN%.
-  STL_ARGLISTSTAT     = 'a',  ///< Argument list status as (x of y).
-  STL_PAGENUM         = 'N',  ///< Page number (when printing).
-  STL_SHOWCMD         = 'S',  ///< 'showcmd' buffer
-  STL_FOLDCOL         = 'C',  ///< Fold column for 'statuscolumn'
-  STL_SIGNCOL         = 's',  ///< Sign column for 'statuscolumn'
-  STL_VIM_EXPR        = '{',  ///< Start of expression to substitute.
-  STL_SEPARATE        = '=',  ///< Separation between alignment sections.
-  STL_TRUNCMARK       = '<',  ///< Truncation mark if line is too long.
-  STL_USER_HL         = '*',  ///< Highlight from (User)1..9 or 0.
-  STL_HIGHLIGHT       = '#',  ///< Highlight name.
-  STL_TABPAGENR       = 'T',  ///< Tab page label nr.
-  STL_TABCLOSENR      = 'X',  ///< Tab page close nr.
-  STL_CLICK_FUNC      = '@',  ///< Click region start.
-};
 /// C string containing all 'statusline' option flags
 #define STL_ALL ((char[]) { \
     STL_FILEPATH, STL_FULLPATH, STL_FILENAME, STL_COLUMN, STL_VIRTCOL, \
@@ -327,12 +226,6 @@ enum {
     STL_CLICK_FUNC, STL_TABPAGENR, STL_TABCLOSENR, STL_CLICK_FUNC, \
     0, })
 
-// flags used for parsed 'wildmode'
-#define WIM_FULL        0x01
-#define WIM_LONGEST     0x02
-#define WIM_LIST        0x04
-#define WIM_BUFLASTUSED 0x08
-
 // arguments for can_bs()
 // each defined char should be unique over all values
 // except for BS_START, that intentionally also matches BS_NOSTOP
@@ -343,13 +236,14 @@ enum {
 #define BS_START        's'     // "Start"
 #define BS_NOSTOP       'p'     // "nostoP
 
-// flags for the 'culopt' option
-#define CULOPT_LINE     0x01    // Highlight complete line
-#define CULOPT_SCRLINE  0x02    // Highlight screen line
-#define CULOPT_NBR      0x04    // Highlight Number column
-
 #define LISPWORD_VALUE \
   "defun,define,defmacro,set!,lambda,if,case,let,flet,let*,letrec,do,do*,define-syntax,let-syntax,letrec-syntax,destructuring-bind,defpackage,defparameter,defstruct,deftype,defvar,do-all-symbols,do-external-symbols,do-symbols,dolist,dotimes,ecase,etypecase,eval-when,labels,macrolet,multiple-value-bind,multiple-value-call,multiple-value-prog1,multiple-value-setq,prog1,progv,typecase,unless,unwind-protect,when,with-input-from-string,with-open-file,with-open-stream,with-output-to-string,with-package-iterator,define-condition,handler-bind,handler-case,restart-bind,restart-case,with-simple-restart,store-value,use-value,muffle-warning,abort,continue,with-slots,with-slots*,with-accessors,with-accessors*,defclass,defmethod,print-unreadable-object"
+
+// When a string option is NULL, it is set to empty_string_option,
+// to avoid having to check for NULL everywhere.
+//
+// TODO(famiu): Remove this when refcounted strings are used for string options.
+EXTERN char empty_string_option[] INIT( = "");
 
 // The following are actual variables for the options
 
@@ -376,46 +270,17 @@ EXTERN char *p_bg;               ///< 'background'
 EXTERN int p_bk;                 ///< 'backup'
 EXTERN char *p_bkc;              ///< 'backupcopy'
 EXTERN unsigned bkc_flags;       ///< flags from 'backupcopy'
-#define BKC_YES                0x001
-#define BKC_AUTO               0x002
-#define BKC_NO                 0x004
-#define BKC_BREAKSYMLINK       0x008
-#define BKC_BREAKHARDLINK      0x010
 EXTERN char *p_bdir;             ///< 'backupdir'
 EXTERN char *p_bex;              ///< 'backupext'
 EXTERN char *p_bo;               ///< 'belloff'
 EXTERN char breakat_flags[256];  ///< which characters are in 'breakat'
 EXTERN unsigned bo_flags;
-
-// values for the 'belloff' option
-#define BO_ALL    0x0001
-#define BO_BS     0x0002
-#define BO_CRSR   0x0004
-#define BO_COMPL  0x0008
-#define BO_COPY   0x0010
-#define BO_CTRLG  0x0020
-#define BO_ERROR  0x0040
-#define BO_ESC    0x0080
-#define BO_EX     0x0100
-#define BO_HANGUL 0x0200
-#define BO_IM     0x0400
-#define BO_LANG   0x0800
-#define BO_MESS   0x1000
-#define BO_MATCH  0x2000
-#define BO_OPER   0x4000
-#define BO_REG    0x8000
-#define BO_SH     0x10000
-#define BO_SPELL  0x20000
-#define BO_WILD   0x40000
-
 EXTERN char *p_bsk;             ///< 'backupskip'
 EXTERN char *p_breakat;         ///< 'breakat'
 EXTERN char *p_bh;              ///< 'bufhidden'
 EXTERN char *p_bt;              ///< 'buftype'
 EXTERN char *p_cmp;             ///< 'casemap'
 EXTERN unsigned cmp_flags;
-#define CMP_INTERNAL            0x001
-#define CMP_KEEPASCII           0x002
 EXTERN char *p_enc;             ///< 'encoding'
 EXTERN int p_deco;              ///< 'delcombine'
 EXTERN char *p_ccv;             ///< 'charconvert'
@@ -423,16 +288,16 @@ EXTERN char *p_cino;            ///< 'cinoptions'
 EXTERN char *p_cedit;           ///< 'cedit'
 EXTERN char *p_cb;              ///< 'clipboard'
 EXTERN unsigned cb_flags;
-#define CB_UNNAMED              0x001
-#define CB_UNNAMEDPLUS          0x002
-#define CB_UNNAMEDMASK          (CB_UNNAMED | CB_UNNAMEDPLUS)
 EXTERN OptInt p_cwh;            ///< 'cmdwinheight'
 EXTERN OptInt p_ch;             ///< 'cmdheight'
 EXTERN char *p_cms;             ///< 'commentstring'
 EXTERN char *p_cpt;             ///< 'complete'
 EXTERN OptInt p_columns;        ///< 'columns'
 EXTERN int p_confirm;           ///< 'confirm'
+EXTERN char *p_cia;             ///< 'completeitemalign'
+EXTERN unsigned cia_flags;      ///<  order flags of 'completeitemalign'
 EXTERN char *p_cot;             ///< 'completeopt'
+EXTERN unsigned cot_flags;      ///< flags from 'completeopt'
 #ifdef BACKSLASH_IN_FILENAME
 EXTERN char *p_csl;             ///< 'completeslash'
 #endif
@@ -451,11 +316,6 @@ EXTERN int p_dg;                ///< 'digraph'
 EXTERN char *p_dir;             ///< 'directory'
 EXTERN char *p_dy;              ///< 'display'
 EXTERN unsigned dy_flags;
-#define DY_LASTLINE             0x001
-#define DY_TRUNCATE             0x002
-#define DY_UHEX                 0x004
-// legacy flag, not used
-#define DY_MSGSEP               0x008
 EXTERN char *p_ead;             ///< 'eadirection'
 EXTERN int p_emoji;             ///< 'emoji'
 EXTERN int p_ea;                ///< 'equalalways'
@@ -477,22 +337,12 @@ EXTERN char *p_ffs;             ///< 'fileformats'
 EXTERN int p_fic;               ///< 'fileignorecase'
 EXTERN char *p_ft;              ///< 'filetype'
 EXTERN char *p_fcs;             ///< 'fillchar'
+EXTERN char *p_ffu;             ///< 'findfunc'
 EXTERN int p_fixeol;            ///< 'fixendofline'
 EXTERN char *p_fcl;             ///< 'foldclose'
 EXTERN OptInt p_fdls;           ///< 'foldlevelstart'
 EXTERN char *p_fdo;             ///< 'foldopen'
 EXTERN unsigned fdo_flags;
-#define FDO_ALL                0x001
-#define FDO_BLOCK              0x002
-#define FDO_HOR                0x004
-#define FDO_MARK               0x008
-#define FDO_PERCENT            0x010
-#define FDO_QUICKFIX           0x020
-#define FDO_SEARCH             0x040
-#define FDO_TAG                0x080
-#define FDO_INSERT             0x100
-#define FDO_UNDO               0x200
-#define FDO_JUMP               0x400
 EXTERN char *p_fex;             ///< 'formatexpr'
 EXTERN char *p_flp;             ///< 'formatlistpat'
 EXTERN char *p_fo;              ///< 'formatoptions'
@@ -528,8 +378,6 @@ EXTERN char *p_isp;             ///< 'isprint'
 EXTERN int p_js;                ///< 'joinspaces'
 EXTERN char *p_jop;             ///< 'jumpooptions'
 EXTERN unsigned jop_flags;
-#define JOP_STACK               0x01
-#define JOP_VIEW                0x02
 EXTERN char *p_keymap;          ///< 'keymap'
 EXTERN char *p_kp;              ///< 'keywordprg'
 EXTERN char *p_km;              ///< 'keymodel'
@@ -545,7 +393,6 @@ EXTERN char *p_lispwords;       ///< 'lispwords'
 EXTERN OptInt p_ls;             ///< 'laststatus'
 EXTERN OptInt p_stal;           ///< 'showtabline'
 EXTERN char *p_lcs;             ///< 'listchars'
-
 EXTERN int p_lz;                ///< 'lazyredraw'
 EXTERN int p_lpl;               ///< 'loadplugins'
 EXTERN int p_magic;             ///< 'magic'
@@ -555,11 +402,11 @@ EXTERN char *p_mp;              ///< 'makeprg'
 EXTERN char *p_mps;             ///< 'matchpairs'
 EXTERN OptInt p_mat;            ///< 'matchtime'
 EXTERN OptInt p_mco;            ///< 'maxcombine'
-#define MAX_MCO  6  // fixed value for 'maxcombine'
 EXTERN OptInt p_mfd;            ///< 'maxfuncdepth'
 EXTERN OptInt p_mmd;            ///< 'maxmapdepth'
 EXTERN OptInt p_mmp;            ///< 'maxmempattern'
 EXTERN OptInt p_mis;            ///< 'menuitems'
+EXTERN char *p_mopt;            ///< 'messagesopt'
 EXTERN char *p_msm;             ///< 'mkspellmem'
 EXTERN int p_ml;                ///< 'modeline'
 EXTERN int p_mle;               ///< 'modelineexpr'
@@ -590,14 +437,6 @@ EXTERN char *p_qe;              ///< 'quoteescape'
 EXTERN int p_ro;                ///< 'readonly'
 EXTERN char *p_rdb;             ///< 'redrawdebug'
 EXTERN unsigned rdb_flags;
-#define RDB_COMPOSITOR          0x001
-#define RDB_NOTHROTTLE          0x002
-#define RDB_INVALID             0x004
-#define RDB_NODELTA             0x008
-#define RDB_LINE                0x010
-#define RDB_FLUSH               0x020
-#define RDB_INTERSECT           0x040
-
 EXTERN OptInt p_rdt;            ///< 'redrawtime'
 EXTERN OptInt p_re;             ///< 'regexpengine'
 EXTERN OptInt p_report;         ///< 'report'
@@ -619,26 +458,6 @@ EXTERN char *p_sel;             ///< 'selection'
 EXTERN char *p_slm;             ///< 'selectmode'
 EXTERN char *p_ssop;            ///< 'sessionoptions'
 EXTERN unsigned ssop_flags;
-
-#define SSOP_BUFFERS            0x001
-#define SSOP_WINPOS             0x002
-#define SSOP_RESIZE             0x004
-#define SSOP_WINSIZE            0x008
-#define SSOP_LOCALOPTIONS       0x010
-#define SSOP_OPTIONS            0x020
-#define SSOP_HELP               0x040
-#define SSOP_BLANK              0x080
-#define SSOP_GLOBALS            0x100
-#define SSOP_SLASH              0x200  // Deprecated, always set.
-#define SSOP_UNIX               0x400  // Deprecated, always set.
-#define SSOP_SESDIR             0x800
-#define SSOP_CURDIR             0x1000
-#define SSOP_FOLDS              0x2000
-#define SSOP_CURSOR             0x4000
-#define SSOP_TABPAGES           0x8000
-#define SSOP_TERMINAL           0x10000
-#define SSOP_SKIP_RTP           0x20000
-
 EXTERN char *p_sh;              ///< 'shell'
 EXTERN char *p_shcf;            ///< 'shellcmdflag'
 EXTERN char *p_sp;              ///< 'shellpipe'
@@ -675,17 +494,9 @@ EXTERN OptInt p_tpm;            ///< 'tabpagemax'
 EXTERN char *p_tal;             ///< 'tabline'
 EXTERN char *p_tpf;             ///< 'termpastefilter'
 EXTERN unsigned tpf_flags;      ///< flags from 'termpastefilter'
-#define TPF_BS                  0x001
-#define TPF_HT                  0x002
-#define TPF_FF                  0x004
-#define TPF_ESC                 0x008
-#define TPF_DEL                 0x010
-#define TPF_C0                  0x020
-#define TPF_C1                  0x040
 EXTERN char *p_tfu;             ///< 'tagfunc'
 EXTERN char *p_spc;             ///< 'spellcapcheck'
 EXTERN char *p_spf;             ///< 'spellfile'
-EXTERN char *p_spk;             ///< 'splitkeep'
 EXTERN char *p_spl;             ///< 'spelllang'
 EXTERN char *p_spo;             ///< 'spelloptions'
 EXTERN unsigned spo_flags;
@@ -695,23 +506,14 @@ EXTERN int p_sol;               ///< 'startofline'
 EXTERN char *p_su;              ///< 'suffixes'
 EXTERN char *p_swb;             ///< 'switchbuf'
 EXTERN unsigned swb_flags;
-// Keep in sync with p_swb_values in optionstr.c
-#define SWB_USEOPEN             0x001
-#define SWB_USETAB              0x002
-#define SWB_SPLIT               0x004
-#define SWB_NEWTAB              0x008
-#define SWB_VSPLIT              0x010
-#define SWB_USELAST             0x020
+EXTERN char *p_spk;             ///< 'splitkeep'
 EXTERN char *p_syn;             ///< 'syntax'
+EXTERN char *p_tcl;             ///< 'tabclose'
+EXTERN unsigned tcl_flags;      ///< flags from 'tabclose'
 EXTERN OptInt p_ts;             ///< 'tabstop'
 EXTERN int p_tbs;               ///< 'tagbsearch'
 EXTERN char *p_tc;              ///< 'tagcase'
 EXTERN unsigned tc_flags;       ///< flags from 'tagcase'
-#define TC_FOLLOWIC             0x01
-#define TC_IGNORE               0x02
-#define TC_MATCH                0x04
-#define TC_FOLLOWSCS            0x08
-#define TC_SMART                0x10
 EXTERN OptInt p_tl;             ///< 'taglength'
 EXTERN int p_tr;                ///< 'tagrelative'
 EXTERN char *p_tags;            ///< 'tags'
@@ -742,28 +544,19 @@ EXTERN char *p_vsts;            ///< 'varsofttabstop'
 EXTERN char *p_vts;             ///< 'vartabstop'
 EXTERN char *p_vdir;            ///< 'viewdir'
 EXTERN char *p_vop;             ///< 'viewoptions'
-EXTERN unsigned vop_flags;      ///< uses SSOP_ flags
+EXTERN unsigned vop_flags;      ///< uses OptSsopFlags
 EXTERN int p_vb;                ///< 'visualbell'
 EXTERN char *p_ve;              ///< 'virtualedit'
 EXTERN unsigned ve_flags;
-#define VE_BLOCK       5U       // includes "all"
-#define VE_INSERT      6U       // includes "all"
-#define VE_ALL         4U
-#define VE_ONEMORE     8U
-#define VE_NONE        16U      // "none"
-#define VE_NONEU       32U      // "NONE"
 EXTERN OptInt p_verbose;        ///< 'verbose'
 #ifdef IN_OPTION_C
-char *p_vfile = "";             ///< used before options are initialized
+char *p_vfile = empty_string_option;  ///< used before options are initialized
 #else
 extern char *p_vfile;           ///< 'verbosefile'
 #endif
 EXTERN int p_warn;              ///< 'warn'
 EXTERN char *p_wop;             ///< 'wildoptions'
 EXTERN unsigned wop_flags;
-#define WOP_FUZZY               0x01
-#define WOP_TAGFILE             0x02
-#define WOP_PUM                 0x04
 EXTERN OptInt p_window;         ///< 'window'
 EXTERN char *p_wak;             ///< 'winaltkeys'
 EXTERN char *p_wig;             ///< 'wildignore'
@@ -785,156 +578,6 @@ EXTERN int p_wb;                ///< 'writebackup'
 EXTERN OptInt p_wd;             ///< 'writedelay'
 EXTERN int p_cdh;               ///< 'cdhome'
 
-/// "indir" values for buffer-local options.
-/// These need to be defined globally, so that the BV_COUNT can be used with
-/// b_p_script_stx[].
-enum {
-  BV_AI = 0,
-  BV_AR,
-  BV_BH,
-  BV_BKC,
-  BV_BT,
-  BV_EFM,
-  BV_GP,
-  BV_MP,
-  BV_BIN,
-  BV_BL,
-  BV_BOMB,
-  BV_CHANNEL,
-  BV_CI,
-  BV_CIN,
-  BV_CINK,
-  BV_CINO,
-  BV_CINW,
-  BV_CINSD,
-  BV_CM,
-  BV_CMS,
-  BV_COM,
-  BV_CPT,
-  BV_DICT,
-  BV_TSR,
-  BV_CSL,
-  BV_CFU,
-  BV_DEF,
-  BV_INC,
-  BV_EOF,
-  BV_EOL,
-  BV_FIXEOL,
-  BV_EP,
-  BV_ET,
-  BV_FENC,
-  BV_FP,
-  BV_BEXPR,
-  BV_FEX,
-  BV_FF,
-  BV_FLP,
-  BV_FO,
-  BV_FT,
-  BV_IMI,
-  BV_IMS,
-  BV_INDE,
-  BV_INDK,
-  BV_INEX,
-  BV_INF,
-  BV_ISK,
-  BV_KMAP,
-  BV_KP,
-  BV_LISP,
-  BV_LOP,
-  BV_LW,
-  BV_MENC,
-  BV_MA,
-  BV_ML,
-  BV_MOD,
-  BV_MPS,
-  BV_NF,
-  BV_OFU,
-  BV_PATH,
-  BV_PI,
-  BV_QE,
-  BV_RO,
-  BV_SCBK,
-  BV_SI,
-  BV_SMC,
-  BV_SYN,
-  BV_SPC,
-  BV_SPF,
-  BV_SPL,
-  BV_SPO,
-  BV_STS,
-  BV_SUA,
-  BV_SW,
-  BV_SWF,
-  BV_TFU,
-  BV_TSRFU,
-  BV_TAGS,
-  BV_TC,
-  BV_TS,
-  BV_TW,
-  BV_TX,
-  BV_UDF,
-  BV_UL,
-  BV_WM,
-  BV_VSTS,
-  BV_VTS,
-  BV_COUNT,  // must be the last one
-};
-
-/// "indir" values for window-local options.
-/// These need to be defined globally, so that the WV_COUNT can be used in the
-/// window structure.
-enum {
-  WV_LIST = 0,
-  WV_ARAB,
-  WV_COCU,
-  WV_COLE,
-  WV_CRBIND,
-  WV_BRI,
-  WV_BRIOPT,
-  WV_DIFF,
-  WV_FDC,
-  WV_FEN,
-  WV_FDI,
-  WV_FDL,
-  WV_FDM,
-  WV_FML,
-  WV_FDN,
-  WV_FDE,
-  WV_FDT,
-  WV_FMR,
-  WV_LBR,
-  WV_NU,
-  WV_RNU,
-  WV_VE,
-  WV_NUW,
-  WV_PVW,
-  WV_RL,
-  WV_RLC,
-  WV_SCBIND,
-  WV_SCROLL,
-  WV_SMS,
-  WV_SISO,
-  WV_SO,
-  WV_SPELL,
-  WV_CUC,
-  WV_CUL,
-  WV_CULOPT,
-  WV_CC,
-  WV_SBR,
-  WV_STC,
-  WV_STL,
-  WV_WFH,
-  WV_WFW,
-  WV_WRAP,
-  WV_SCL,
-  WV_WINHL,
-  WV_LCS,
-  WV_FCS,
-  WV_WINBL,
-  WV_WBR,
-  WV_COUNT,  // must be the last one
-};
-
 // Value for b_p_ul indicating the global value must be used.
 #define NO_LOCAL_UNDOLEVEL (-123456)
 
@@ -942,7 +585,10 @@ enum {
 
 #define SB_MAX 100000  // Maximum 'scrollback' value.
 
-#define MAX_NUMBERWIDTH 20      // used for 'numberwidth' and 'statuscolumn'
+#define MAX_NUMBERWIDTH 20      // used for 'numberwidth'
+
+// Maximum 'statuscolumn' width: number + sign + fold columns
+#define MAX_STCWIDTH MAX_NUMBERWIDTH + SIGN_SHOW_MAX * SIGN_WIDTH + 9
 
 #define TABSTOP_MAX 9999
 

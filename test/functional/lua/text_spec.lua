@@ -1,6 +1,8 @@
-local helpers = require('test.functional.helpers')(after_each)
-local clear = helpers.clear
-local eq = helpers.eq
+local t = require('test.testutil')
+local n = require('test.functional.testnvim')()
+
+local clear = n.clear
+local eq = t.eq
 
 describe('vim.text', function()
   before_each(clear)
@@ -18,6 +20,27 @@ describe('vim.text', function()
         eq(input, vim.text.hexdecode(output))
       end
     end)
+
+    it('works with very large strings', function()
+      local input, output = string.rep('😂', 2 ^ 16), string.rep('F09F9882', 2 ^ 16)
+      eq(output, vim.text.hexencode(input))
+      eq(input, vim.text.hexdecode(output))
+    end)
+
+    it('errors on invalid input', function()
+      -- Odd number of hex characters
+      do
+        local res, err = vim.text.hexdecode('ABC')
+        eq(nil, res)
+        eq('string must have an even number of hex characters', err)
+      end
+
+      -- Non-hexadecimal input
+      do
+        local res, err = vim.text.hexdecode('nothex')
+        eq(nil, res)
+        eq('string must contain only hex characters', err)
+      end
+    end)
   end)
 end)
-

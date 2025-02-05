@@ -1,11 +1,14 @@
-local helpers = require('test.functional.helpers')(after_each)
-local thelpers = require('test.functional.terminal.helpers')
-local luv = require('luv')
-local clear = helpers.clear
-local feed_command = helpers.feed_command
-local feed_data = thelpers.feed_data
+local t = require('test.testutil')
+local n = require('test.functional.testnvim')()
+local tt = require('test.functional.testterm')
 
-if helpers.skip(helpers.is_os('win')) then return end
+local clear = n.clear
+local feed_command = n.feed_command
+local feed_data = tt.feed_data
+
+if t.skip(t.is_os('win')) then
+  return
+end
 
 describe('autoread TUI FocusGained/FocusLost', function()
   local f1 = 'xtest-foo'
@@ -13,11 +16,15 @@ describe('autoread TUI FocusGained/FocusLost', function()
 
   before_each(function()
     clear()
-    screen = thelpers.setup_child_nvim({
-      '-u', 'NONE',
-      '-i', 'NONE',
-      '--cmd', 'colorscheme vim',
-      '--cmd', 'set noswapfile noshowcmd noruler notermguicolors',
+    screen = tt.setup_child_nvim({
+      '-u',
+      'NONE',
+      '-i',
+      'NONE',
+      '--cmd',
+      'colorscheme vim',
+      '--cmd',
+      'set noswapfile noshowcmd noruler notermguicolors',
     })
   end)
 
@@ -34,47 +41,56 @@ describe('autoread TUI FocusGained/FocusLost', function()
     line 4
     ]]
 
-    helpers.write_file(path, '')
+    t.write_file(path, '')
     local atime = os.time() - 10
-    luv.fs_utime(path, atime, atime)
+    vim.uv.fs_utime(path, atime, atime)
 
-    screen:expect{grid=[[
-      {1: }                                                 |
+    screen:expect {
+      grid = [[
+      ^                                                  |
       {4:~                                                 }|*3
       {5:[No Name]                                         }|
                                                         |
       {3:-- TERMINAL --}                                    |
-    ]]}
-    feed_command('edit '..path)
-    screen:expect{grid=[[
-      {1: }                                                 |
+    ]],
+    }
+    feed_command('edit ' .. path)
+    screen:expect {
+      grid = [[
+      ^                                                  |
       {4:~                                                 }|*3
       {5:xtest-foo                                         }|
       :edit xtest-foo                                   |
       {3:-- TERMINAL --}                                    |
-    ]]}
+    ]],
+    }
     feed_data('\027[O')
     feed_data('\027[O')
-    screen:expect{grid=[[
-      {1: }                                                 |
+    screen:expect {
+      grid = [[
+      ^                                                  |
       {4:~                                                 }|*3
       {5:xtest-foo                                         }|
       :edit xtest-foo                                   |
       {3:-- TERMINAL --}                                    |
-    ]], unchanged=true}
+    ]],
+      unchanged = true,
+    }
 
-    helpers.write_file(path, expected_addition)
+    t.write_file(path, expected_addition)
 
     feed_data('\027[I')
 
-    screen:expect{grid=[[
-      {1:l}ine 1                                            |
+    screen:expect {
+      grid = [[
+      ^line 1                                            |
       line 2                                            |
       line 3                                            |
       line 4                                            |
       {5:xtest-foo                                         }|
-      "xtest-foo" 4L, 28B                               |
+      :edit xtest-foo                                   |
       {3:-- TERMINAL --}                                    |
-    ]]}
+    ]],
+    }
   end)
 end)

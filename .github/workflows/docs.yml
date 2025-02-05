@@ -2,11 +2,6 @@ name: docs
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - 'src/nvim/api/*.[ch]'
-      - 'src/nvim/eval.lua'
-      - 'runtime/lua/**.lua'
-      - 'runtime/doc/**'
 jobs:
   docs:
     runs-on: ubuntu-latest
@@ -18,10 +13,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get install -y doxygen python3-msgpack
-
       - name: Generate docs
         run: |
           make doc
@@ -30,3 +21,6 @@ jobs:
             echo "::error::The doc generation produces the following changes:"
             git diff --color --exit-code
           fi
+
+      - name: Validate docs
+        run: make lintdoc

@@ -7,10 +7,6 @@
 #include "nvim/pos_defs.h"
 #include "nvim/types_defs.h"
 
-// Includes final NUL. MAX_MCO is no longer used, but at least 4*(MAX_MCO+1)+1=29
-// ensures we can fit all composed chars which did fit before.
-#define MAX_SCHAR_SIZE 32
-
 enum {
   kZIndexDefaultGrid = 0,
   kZIndexFloatDefault = 50,
@@ -37,7 +33,7 @@ enum {
 /// attrs[] contains the highlighting attribute for each cell.
 ///
 /// vcols[] contains the virtual columns in the line. -1 means not available
-/// or before buffer text, MAXCOL means after the end of the line.
+/// or before buffer text.
 /// -2 or -3 means in fold column and a mouse click should:
 ///  -2: open a fold
 ///  -3: close a fold
@@ -80,8 +76,8 @@ struct ScreenGrid {
   // whether the compositor should blend the grid with the background grid
   bool blending;
 
-  // whether the grid can be focused with mouse clicks.
-  bool focusable;
+  // whether the grid interacts with mouse events.
+  bool mouse_enabled;
 
   // z-index: the order in the stack of grids.
   int zindex;

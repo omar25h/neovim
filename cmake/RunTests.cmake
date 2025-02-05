@@ -4,6 +4,7 @@ set(ENV{VIMRUNTIME} ${WORKING_DIR}/runtime)
 set(ENV{NVIM_RPLUGIN_MANIFEST} ${BUILD_DIR}/Xtest_rplugin_manifest)
 set(ENV{XDG_CONFIG_HOME} ${BUILD_DIR}/Xtest_xdg/config)
 set(ENV{XDG_DATA_HOME} ${BUILD_DIR}/Xtest_xdg/share)
+set(ENV{XDG_STATE_HOME} ${BUILD_DIR}/Xtest_xdg/state)
 unset(ENV{XDG_DATA_DIRS})
 unset(ENV{NVIM})  # Clear $NVIM in case tests are running from Nvim. #11009
 
@@ -32,12 +33,7 @@ if(IS_ABSOLUTE ${TEST_PATH})
   file(RELATIVE_PATH TEST_PATH "${WORKING_DIR}" "${TEST_PATH}")
 endif()
 
-if(BUSTED_OUTPUT_TYPE STREQUAL junit)
-  set(EXTRA_ARGS OUTPUT_FILE ${BUILD_DIR}/${TEST_TYPE}test-junit.xml)
-endif()
-
-set(BUSTED_ARGS $ENV{BUSTED_ARGS})
-separate_arguments(BUSTED_ARGS)
+separate_arguments(BUSTED_ARGS NATIVE_COMMAND $ENV{BUSTED_ARGS})
 
 if(DEFINED ENV{TEST_TAG} AND NOT "$ENV{TEST_TAG}" STREQUAL "")
   list(APPEND BUSTED_ARGS --tags $ENV{TEST_TAG})
@@ -51,7 +47,7 @@ if(DEFINED ENV{TEST_FILTER_OUT} AND NOT "$ENV{TEST_FILTER_OUT}" STREQUAL "")
   list(APPEND BUSTED_ARGS --filter-out $ENV{TEST_FILTER_OUT})
 endif()
 
-# TMPDIR: for helpers.tmpname() and Nvim tempname().
+# TMPDIR: for testutil.tmpname() and Nvim tempname().
 set(ENV{TMPDIR} "${BUILD_DIR}/Xtest_tmpdir")
 execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory $ENV{TMPDIR})
 
@@ -62,7 +58,7 @@ if(NOT DEFINED ENV{TEST_TIMEOUT} OR "$ENV{TEST_TIMEOUT}" STREQUAL "")
   set(ENV{TEST_TIMEOUT} 1200)
 endif()
 
-set(ENV{SYSTEM_NAME} ${CMAKE_HOST_SYSTEM_NAME})  # used by test/helpers.lua.
+set(ENV{SYSTEM_NAME} ${CMAKE_HOST_SYSTEM_NAME})  # used by test/testutil.lua.
 
 if(NOT WIN32)
   # Tests assume POSIX "sh" and may fail if SHELL=fish. #24941 #6172
@@ -72,7 +68,7 @@ endif()
 execute_process(
   # Note: because of "-ll" (low-level interpreter mode), some modules like
   # _editor.lua are not loaded.
-  COMMAND ${NVIM_PRG} -ll ${WORKING_DIR}/test/lua_runner.lua ${DEPS_INSTALL_DIR} busted -v -o test.busted.outputHandlers.${BUSTED_OUTPUT_TYPE}
+  COMMAND ${NVIM_PRG} -ll ${WORKING_DIR}/test/lua_runner.lua ${DEPS_INSTALL_DIR} busted -v -o test.busted.outputHandlers.nvim
     --lazy --helper=${TEST_DIR}/${TEST_TYPE}/preload.lua
     --lpath=${BUILD_DIR}/?.lua
     --lpath=${WORKING_DIR}/runtime/lua/?.lua

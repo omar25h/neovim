@@ -36,6 +36,7 @@ return {
     'CursorHold', -- cursor in same position for a while
     'CursorHoldI', -- idem, in Insert mode
     'CursorMoved', -- cursor was moved
+    'CursorMovedC', -- cursor was moved in Cmdline mode
     'CursorMovedI', -- cursor was moved in Insert mode
     'DiagnosticChanged', -- diagnostics in a buffer were modified
     'DiffUpdated', -- diffs have been updated
@@ -72,10 +73,10 @@ return {
     'InsertLeavePre', -- just before leaving Insert mode
     'LspAttach', -- after an LSP client attaches to a buffer
     'LspDetach', -- after an LSP client detaches from a buffer
-    'LspRequest', -- after an LSP request is started, canceled, or completed
     'LspNotify', -- after an LSP notice has been sent to the server
-    'LspTokenUpdate', -- after a visible LSP token is updated
     'LspProgress', -- after a LSP progress update
+    'LspRequest', -- after an LSP request is started, canceled, or completed
+    'LspTokenUpdate', -- after a visible LSP token is updated
     'MenuPopup', -- just before popup menu is displayed
     'ModeChanged', -- after changing the mode
     'OptionSet', -- after setting any option
@@ -88,6 +89,7 @@ return {
     'SafeState', -- going to wait for a character
     'SearchWrapped', -- after the search wrapped around
     'SessionLoadPost', -- after loading a session file
+    'SessionWritePost', -- after writing a session file
     'ShellCmdPost', -- after ":!cmd"
     'ShellFilterPost', -- after ":1,2!cmd", ":w !cmd", ":r !cmd".
     'Signal', -- after nvim process received a signal
@@ -109,6 +111,7 @@ return {
     'TermEnter', -- after entering Terminal mode
     'TermLeave', -- after leaving Terminal mode
     'TermOpen', -- after opening a terminal buffer
+    'TermRequest', -- after an unhandled OSC sequence is emitted
     'TermResponse', -- after setting "v:termresponse"
     'TextChanged', -- text was modified
     'TextChangedI', -- text was modified in Insert mode(no popup)
@@ -157,8 +160,8 @@ return {
     LspAttach = true,
     LspDetach = true,
     LspNotify = true,
-    LspRequest = true,
     LspProgress = true,
+    LspRequest = true,
     LspTokenUpdate = true,
     RecordingEnter = true,
     RecordingLeave = true,
@@ -166,6 +169,7 @@ return {
     TabNewEntered = true,
     TermClose = true,
     TermOpen = true,
+    TermRequest = true,
     UIEnter = true,
     UILeave = true,
   },

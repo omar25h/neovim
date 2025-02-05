@@ -8,12 +8,11 @@ on:
     branches:
       - 'master'
       - 'release-[0-9]+.[0-9]+'
-    paths-ignore:
-      - 'contrib/**'
+  workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.sha }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   ASAN_OPTIONS: detect_leaks=1:check_initialization_order=1:log_path=${{ github.workspace }}/build/log/asan:intercept_tls_get_addr=0
@@ -29,7 +28,7 @@ env:
 
 jobs:
   lint:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
       CC: clang
@@ -79,7 +78,7 @@ jobs:
         run: cmake --build build --target lintc-uncrustify
 
   clang-analyzer:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       CC: clang
@@ -94,17 +93,24 @@ jobs:
       - run: cmake --build build --target clang-analyzer
 
   posix:
-    name: ${{ matrix.build.runner }} ${{ matrix.build.flavor }} ${{ matrix.build.cc }} ${{ matrix.test }}
+    name: ${{ matrix.build.os }} ${{ matrix.build.flavor }} ${{ matrix.build.cc }} ${{ matrix.test }}
     strategy:
       fail-fast: false
       matrix:
+        # The `os` field is not needed to differentiate between the different
+        # matrix builds. It is needed to not change the required checks (which
+        # uses jobs names) each time we bump the runner version. It may be
+        # possible to remove if we e.g. start using `-latest` runner versions
+        # or if github introduces a wildcard for required checks in the future.
         build:
           [
-            { runner: ubuntu-22.04, flavor: asan, cc: clang, flags: -D ENABLE_ASAN_UBSAN=ON },
-            { runner: ubuntu-22.04, flavor: tsan, cc: clang, flags: -D ENABLE_TSAN=ON },
-            { runner: ubuntu-22.04, cc: gcc },
-            { runner: macos-12, cc: clang, flags: -D CMAKE_FIND_FRAMEWORK=NEVER, deps_flags: -D CMAKE_FIND_FRAMEWORK=NEVER },
-            { runner: ubuntu-22.04, flavor: puc-lua, cc: gcc, deps_flags: -D USE_BUNDLED_LUAJIT=OFF -D USE_BUNDLED_LUA=ON, flags: -D PREFER_LUA=ON },
+            { runner: ubuntu-24.04, os: ubuntu, flavor: asan, cc: clang, flags: -D ENABLE_ASAN_UBSAN=ON },
+            { runner: ubuntu-24.04, os: ubuntu, flavor: tsan, cc: clang, flags: -D ENABLE_TSAN=ON },
+            { runner: ubuntu-24.04, os: ubuntu, flavor: release, cc: gcc, flags: -D CMAKE_BUILD_TYPE=Release },
+            { runner: ubuntu-24.04-arm, os: ubuntu, flavor: arm, cc: gcc, flags: -D CMAKE_BUILD_TYPE=RelWithDebInfo },
+            { runner: macos-13, os: macos, flavor: intel, cc: clang, flags: -D CMAKE_FIND_FRAMEWORK=NEVER, deps_flags: -D CMAKE_FIND_FRAMEWORK=NEVER },
+            { runner: macos-15, os: macos, flavor: arm, cc: clang, flags: -D CMAKE_FIND_FRAMEWORK=NEVER, deps_flags: -D CMAKE_FIND_FRAMEWORK=NEVER },
+            { runner: ubuntu-24.04, os: ubuntu, flavor: puc-lua, cc: gcc, deps_flags: -D USE_BUNDLED_LUAJIT=OFF -D USE_BUNDLED_LUA=ON, flags: -D PREFER_LUA=ON },
           ]
         test: [unittest, functionaltest, oldtest]
         exclude:
@@ -130,10 +136,6 @@ jobs:
       - if: ${{ matrix.test != 'unittest' }}
         name: Set up interpreter packages
         run: |
-          # Use default CC to avoid compilation problems when installing Python modules.
-          echo "Install neovim module for Python."
-          CC=cc python3 -m pip -q install --user --upgrade pynvim
-
           echo "Install neovim RubyGem."
           gem install --no-document --bindir "$BIN_DIR" --user-install --pre neovim
 
@@ -144,19 +146,29 @@ jobs:
           sudo cpanm -n Neovim::Ext || cat "$HOME/.cpanm/build.log"
           perl -W -e 'use Neovim::Ext; print $Neovim::Ext::VERSION'
 
+      - name: Remove .git directory
+        if: ${{ matrix.build.os == 'ubuntu' }}
+        run: cmake -E rm -rf -- .git
+
       - name: Build third-party deps
         run: |
-          cmake -S cmake.deps --preset ci ${{ matrix.build.deps_flags }}
+          cmake -S cmake.deps --preset ci -D CMAKE_BUILD_TYPE=Debug ${{ matrix.build.deps_flags }}
           cmake --build .deps
 
       - name: Build
         run: |
-          cmake --preset ci -D CMAKE_INSTALL_PREFIX:PATH=$INSTALL_PREFIX ${{ matrix.build.flags }}
+          cmake --preset ci -D CMAKE_BUILD_TYPE=Debug -D CMAKE_INSTALL_PREFIX:PATH=$INSTALL_PREFIX ${{ matrix.build.flags }}
           cmake --build build
 
-      - name: ${{ matrix.test }}
+      - if: ${{ matrix.test == 'oldtest' }}
+        name: ${{ matrix.test }}
         timeout-minutes: 20
-        run: make ${{ matrix.test }}
+        run: make -C test/old/testdir NVIM_PRG=$(realpath build)/bin/nvim
+
+      - if: ${{ matrix.test != 'oldtest' }}
+        name: ${{ matrix.test }}
+        timeout-minutes: 20
+        run: cmake --build build --target ${{ matrix.test }}
 
       - name: Install
         run: |
@@ -190,102 +202,10 @@ jobs:
         run: cat $(find "$LOG_DIR" -type f)
 
   windows:
-    runs-on: windows-2022
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        test: [functional, old]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup
-
-      - name: Build deps
-        run: |
-          cmake -S cmake.deps -B .deps -G Ninja -D CMAKE_BUILD_TYPE='RelWithDebInfo'
-          cmake --build .deps
-
-      - name: Build
-        run: |
-          cmake --preset ci -D CMAKE_BUILD_TYPE='RelWithDebInfo'
-          cmake --build build
-
-      - name: Install test deps
-        run: |
-          $PSNativeCommandArgumentPassing = 'Legacy'
-
-          & build\bin\nvim.exe "--version"
-
-          # Ensure that the "win32" feature is set.
-          & build\bin\nvim -u NONE --headless -c 'exe !has(\"win32\").\"cq\"'
-
-          python -m pip install pynvim
-          # Sanity check
-          python -c "import pynvim; print(str(pynvim))"
-
-          node --version
-          npm.cmd --version
-
-          npm.cmd install -g neovim
-          Get-Command -CommandType Application neovim-node-host.cmd
-          npm.cmd link neovim
-
-      - if: ${{ matrix.test == 'functional' }}
-        name: functionaltest
-        timeout-minutes: 20
-        run: cmake --build build --target functionaltest
-
-      - if: ${{ matrix.test == 'old' }}
-        uses: msys2/setup-msys2@v2
-        with:
-          update: true
-          pacboy: >-
-            make:p gcc:p diffutils:p
-          release: false
-
-      - if: ${{ matrix.test == 'old' }}
-        name: oldtest
-        shell: msys2 {0}
-        run: |
-          cd test/old/testdir
-          mingw32-make VERBOSE=1
-
-  # This job tests the following things:
-  # - Check if Release, MinSizeRel and RelWithDebInfo compiles correctly.
-  # - Test the above build types with the GCC compiler specifically.
-  #   Empirically the difference in warning levels between GCC and other
-  #   compilers is particularly big.
-  # - Test if the build works with multi-config generators. We mostly use
-  #   single-config generators so it's nice to have a small sanity check for
-  #   multi-config.
-  build-types:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 10
-    env:
-      CC: gcc
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup
-
-      - name: Build third-party deps
-        run: |
-          cmake -S cmake.deps -B .deps -G "Ninja Multi-Config"
-          cmake --build .deps
-
-      - name: Configure
-        run: cmake --preset ci -G "Ninja Multi-Config"
-
-      - name: Release
-        run: cmake --build build --config Release
-
-      - name: RelWithDebInfo
-        run: cmake --build build --config RelWithDebInfo
-
-      - name: MinSizeRel
-        run: cmake --build build --config MinSizeRel
+    uses: ./.github/workflows/test_windows.yml
 
   with-external-deps:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
       CC: gcc
@@ -298,8 +218,6 @@ jobs:
           sudo add-apt-repository ppa:neovim-ppa/stable
           sudo apt-get install -y \
             libluajit-5.1-dev \
-            libmsgpack-dev \
-            libtermkey-dev \
             libunibilium-dev \
             libuv1-dev \
             lua-filesystem \
@@ -307,7 +225,6 @@ jobs:
             luajit \
             lua-luv-dev
             # libtree-sitter-dev \
-            # libvterm-dev
 
             # Remove comments from packages once we start using these external
             # dependencies.
